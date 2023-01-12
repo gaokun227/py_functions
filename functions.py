@@ -1779,7 +1779,17 @@ def simple_tracker(lon, lat, ws10m, slp):
 
 	dr = 0.03 # deg
 
-	NT, nx, ny = np.shape(ws10m)
+        try:
+	  NT, nx, ny = np.shape(ws10m)
+        except:
+          nx, ny = np.shape(ws10m)
+          ws10m_new = np.zeros((1,nx,ny)) 
+          slp_new = np.zeros((1,nx,ny))
+          ws10m_new[0,:,:] = ws10m
+          slp_new[0,:,:] = slp
+          ws10m = ws10m_new
+          slp = slp_new
+          NT = 1
 
 	vmax_all = []
 	pmin_all = []
@@ -1803,8 +1813,11 @@ def simple_tracker(lon, lat, ws10m, slp):
 
 	    # select var in a box for later analysis
 	    ind1, ind2 = np.where(ws10m1==vmax1)
+            ind1, ind2 = ind1[0], ind2[0]
+            print ind1, ind2
+
 	    scope = int(1./dr) # 1 deg as half box length
-	 
+
 	    lon_sel = lon[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
 	    lat_sel = lat[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
 	    ws_sel = ws10m1[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
@@ -1818,7 +1831,9 @@ def simple_tracker(lon, lat, ws10m, slp):
 
 	    # --- step 3: find vmin and its location
 	    ind1, ind2 = np.where(slp_sel==pmin1)
-	    scope = 10 # 10 grids as half box length
+            ind1, ind2 = ind1[0], ind2[0]
+
+            scope = 10 # 10 grids as half box length
 	 
 	    lon_sel2 = lon_sel[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
 	    lat_sel2 = lat_sel[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
@@ -1855,6 +1870,122 @@ def simple_tracker(lon, lat, ws10m, slp):
 	return np.array(vmax_all), np.array(pmin_all), np.array(rmw_all),\
                np.array(lon_pmin_all), np.array(lat_pmin_all)
 
+#-----------------------------------------------------------------------
+# simple tracker - DP
+#-----------------------------------------------------------------------
+
+def simpler_tracker(lon, lat, ws10m, slp):
+
+        try:
+          NT, nx, ny = np.shape(ws10m)
+        except:
+          nx, ny = np.shape(ws10m)
+          ws10m_new = np.zeros((1,nx,ny))
+          slp_new = np.zeros((1,nx,ny))
+          ws10m_new[0,:,:] = ws10m
+          slp_new[0,:,:] = slp
+          ws10m = ws10m_new
+          slp = slp_new
+          NT = 1
+
+        vmax_all = []
+        pmin_all = []
+        lon_pmin_all = []
+        lat_pmin_all = []
+
+        mid = int((nx-1)/2)
+        dr = 1/32.
+        scope = int(5/dr)
+
+        for i in np.arange(NT):
+
+            slp1 = slp[i,mid-scope:mid+scope,mid-scope:mid+scope]
+            lon1 = lon[mid-scope:mid+scope,mid-scope:mid+scope]
+            lat1 = lat[mid-scope:mid+scope,mid-scope:mid+scope]
+
+            ws10m1 = ws10m[i,:,:]
+
+            vmax1 = np.max(ws10m1)
+            pmin1 = np.min(slp1)
+
+            lon_pmin = lon1[np.where(slp1==pmin1)]
+            lat_pmin = lat1[np.where(slp1==pmin1)]
+           
+            #print lon_pmin
+
+            vmax_all.append(vmax1)
+            pmin_all.append(pmin1)
+            lon_pmin_all.append(lon_pmin[0])
+            lat_pmin_all.append(lat_pmin[0])
+
+        return np.array(vmax_all), np.array(pmin_all), np.array(lon_pmin_all), np.array(lat_pmin_all)
+
+def simplest_tracker(ws10m, slp):
+
+        NT, nx, ny = np.shape(ws10m)
+        vmax_all = []
+        pmin_all = []
+
+        for i in np.arange(NT):
+
+            ws10m1 = ws10m[i,:,:]
+            slp1 = slp[i,:,:]
+
+            vmax1 = np.max(ws10m1)
+            pmin1 = np.min(slp1)
+
+            vmax_all.append(vmax1)
+            pmin_all.append(pmin1)
+
+        return np.array(vmax_all), np.array(pmin_all)
+
+def simple_tracker_dp(lon, lat, ws10m, slp):
+
+        dr = 1./30 # deg
+
+        NT, nx, ny = np.shape(ws10m)
+
+        vmax_all = []
+        pmin_all = []
+        rmw_all = []
+
+        for i in np.arange(NT):
+
+            ws10m1 = ws10m[i,:,:]
+            slp1 = slp[i,:,:]
+
+            # --- step 1: find max wind min pres 
+            vmax1 = np.max(ws10m1)
+            lon_vmax = lon[np.where(ws10m1==vmax1)]
+            lat_vmax = lat[np.where(ws10m1==vmax1)]
+
+            ind1, ind2 = np.where(ws10m1==vmax1)
+            ind1, ind2 = ind1[0], ind2[0]
+            scope = int(1.5/dr) # half box
+
+            slp_sel = slp1[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
+            pmin1 = np.min(slp_sel)
+
+            # --- step2: find vmin and its location
+            ind1, ind2 = np.where(slp_sel==pmin1)
+            ind1, ind2 = ind1[0], ind2[0]
+            scope = 10 # 10 grids as half box length
+
+            lon_sel = lon[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
+            lat_sel = lat[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
+            ws_sel = ws10m1[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
+            vmin1 = np.min(ws_sel)
+            lon_vmin = lon_sel[np.where(ws_sel==vmin1)]
+            lat_vmin = lat_sel[np.where(ws_sel==vmin1)]
+
+            # --- step 3: get rmw
+            rmw1 = cal_dist_2p(lon_vmin, lat_vmin, lon_vmax, lat_vmax)
+
+            vmax_all.append(vmax1)
+            pmin_all.append(pmin1)
+            rmw_all.append(rmw1)
+
+        return np.array(vmax_all), np.array(pmin_all), np.array(rmw_all)
 
 #-----------------------------------------------------------------------
 # function to get desired TC records 
