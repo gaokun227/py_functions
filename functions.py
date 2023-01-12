@@ -399,7 +399,16 @@ def read_nc(file, var_name):
     var  = np.squeeze(var)
 
     return var
- 
+
+def read_nc_2d(file, var_name, idx1, idx2, idy1, idy2, is_grid=False):
+
+    f1 = Dataset(file, 'r')
+    if is_grid:
+        var = f1.variables[var_name][idx1:idx2+1, idy1:idy2+1]
+    else:
+         var = f1.variables[var_name][:,idx1:idx2+1, idy1:idy2+1]
+    return np.array(var)
+
 #-----------------------------------------------------------------------
 # function to read mat file
 #-----------------------------------------------------------------------
@@ -1603,8 +1612,23 @@ def make_contourfs_sec_3p(x1d,z1d,var_plot1,var_plot2,var_plot3,  \
 ########################################################################
 
 #-----------------------------------------------------------------------
+# function to get Cd from z0
+#-----------------------------------------------------------------------
+
+def get_cd(znot, zm):
+
+   cd=0.4**2/(np.log(zm/znot))**2
+
+   return cd
+
+#-----------------------------------------------------------------------
 # function to cal RMW in km 
 #-----------------------------------------------------------------------
+def cal_rmw1(lat1, rmw1):
+
+   dist = cal_dist_2p(lat1, 100, lat1, 101)
+
+   return rmw1*dist
 
 def cal_rmw(tc_lat_all, tc_rmw_all):
 

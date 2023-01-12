@@ -8,8 +8,10 @@ import glob
 import os
 from scipy.stats import norm
 
-sys.path.append('/home/kng/Desktop/python_tool/py_functions/')
+#sys.path.append('/home/kng/Desktop/python_tool/py_functions/')
 from functions import *
+
+# --- class to process met-tc output
 
 class process_mettc():
 
@@ -96,7 +98,7 @@ class process_mettc():
     fig.savefig(model_name_string+'_'+type+'.png', bbox_inches = 'tight')
     #plt.show()
 
-# --- 
+# --- function to do TC verification 
 
 def run_verify(work_dir, models, type, model_name_map, do_plot_only = False, model_sel=[], color_sel=[], atcf_dir = '../all/', sig_test_model_list=[]):
 
