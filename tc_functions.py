@@ -953,7 +953,66 @@ def mean_wind_radii(rad1, rad2, rad3, rad4):
    
     return np.nanmean(rad_new, axis=0)
 
+# --- function to get wind radii
+
+def get_wind_radius(vel_azi, dr, wind_th):
+    nt, nr = np.shape(vel_azi)
+    radius = np.arange(nr)*dr
+    rad = np.zeros(nt)
+    for t in np.arange(nt):
+      vel1 = vel_azi[t,:]
+      if np.max(vel1) < wind_th:
+          rad[t] = np.nan
+      else:
+        rind1 = find_nearest(vel1,np.max(vel1))
+        rind = find_nearest(vel1[rind1:],wind_th)
+        rad[t] = radius[rind1+rind]
+    return rad
+
 # --- function to read atcf
+
+def read_atcf_obs(filename):
+
+    print("Reading", filename)
+    fo = open (filename, "r")
+
+    lines = fo.readlines()
+
+    forecast_hour, lat, lon, wind, pres = [], [], [], [], []
+    counter = 0
+    for line in lines:
+
+        line = str(line)
+        fields = line.split(',')
+
+        # changing info
+        latSingle = int(fields[6][:-1])/10.0
+        lonSingle = 360.-(int(fields[7][:-1])/10.0)
+        hourSingle = fields[2]
+        forecast_hour.append(hourSingle)
+        lat.append(latSingle)
+        lon.append(lonSingle)
+        wind.append(0.5144*int(fields[8]))
+        pres.append(int(fields[9]))
+
+        if counter == 0:
+           basin=fields[0]
+           cycloneNum=fields[1].strip()
+           warnDT=fields[2].strip()
+           model=fields[4].strip()
+        counter += 1
+
+    tc_dict = {'basin'     : basin,
+               'cycloneNum': cycloneNum,
+               'warnDT'    : warnDT,
+               'model'     : model,
+               'forecast_hour': forecast_hour,
+               'lat'       : lat,
+               'lon'       : lon,
+               'wind'      : wind,
+               'pres'      : pres
+               }
+    return tc_dict
 
 def read_atcf(filename, isModel=True, read_wind_prof=False):
 
