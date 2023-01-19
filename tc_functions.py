@@ -196,11 +196,9 @@ class stratify_TC_error():
   def show_records_dist(self, option='track', vmax_cutoff=64, hh_sel=None):
       model_sel = self.modelID_list[0]
 
-      if option == 'track':
+      if option == 'track': # show storm initial location 
         if hh_sel != None:
           df_xtr_sel = self.df_xtr[(self.df_xtr['modelID'] == model_sel) & (self.df_xtr['leadTime'] == hh_sel)]
-          #print hh_sel
-          #print df_xtr_sel#.head(n=20)
         else:
           df_xtr_sel = self.df_xtr[self.df_xtr['modelID'] == model_sel]
 
@@ -214,8 +212,7 @@ class stratify_TC_error():
 
         fig = plt.figure(figsize = (12,8))
 
-        m = setup_m('NAtl_3nests') 
-        #m.drawcoastlines()
+        m = setup_m('NAtl_wnest') 
 
         marker = 'o'
         ms = 6
@@ -223,7 +220,6 @@ class stratify_TC_error():
         label = 'Obs'
  
         # seperate storms based on vmax_obs
-      
         mask1 = vmax_obs < vmax_cutoff
         mask2 = vmax_obs >= vmax_cutoff
  
@@ -232,34 +228,11 @@ class stratify_TC_error():
         lon_obs_g2 = np.ma.MaskedArray(lon_obs,mask=~mask2)
         lat_obs_g2 = np.ma.MaskedArray(lat_obs,mask=~mask2)
 
-        #vmax_obs_g2 = np.ma.MaskedArray(vmax_obs,mask=~mask2)
-        #print vmax_obs_g2[:10]
-
         x1, y1 = m(lon_obs_g1, lat_obs_g1)
         x2, y2 = m(lon_obs_g1, lat_obs_g2)
 
         m.plot(x1, y1, 'ko', ms=ms, label='Below cutoff intensity - ' +str(vmax_cutoff))
         m.plot(x2, y2, 'ro', ms=ms, label='Above cutoff intensity - ' +str(vmax_cutoff))
-
-        # for detecting if 45x45 filter domains can be out of nested domain
-        scope = 45./2
-        lon_cornors = []
-        lat_cornors = []
-
-        for lon1, lat1 in zip(lon_obs_g2, lat_obs_g2):
-            lon_cornors.append(lon1-scope)
-            lat_cornors.append(lat1-scope)
-
-            lon_cornors.append(lon1+scope)
-            lat_cornors.append(lat1+scope)
-
-            lon_cornors.append(lon1-scope)
-            lat_cornors.append(lat1+scope)
-
-            lon_cornors.append(lon1+scope)
-            lat_cornors.append(lat1-scope)
-        x_cornors, y_cornors = m(lon_cornors, lat_cornors)
-        m.plot(x_cornors, y_cornors, 'b.', ms=6)
 
         plt.title('Storm location at initial time', fontsize=16)
         plt.legend()
