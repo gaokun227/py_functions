@@ -5,13 +5,15 @@ from netCDF4 import Dataset
 import glob
 import os
 
-def read_tcvital(filename):
+def read_tcvitals(filename):
+    # Note TCs in input file are sorted based on intensity
     tc_dict = {}
     f = open(filename, "r")
+    counter = 0
     for line in f:
         tc_tmp = {}
         L = line.split()
-        tc_id = L[1]
+        tc_id = str(counter)+'_'+L[1]
         lon = float(L[6][:-1])/10
         lat = float(L[5][:-1])/10
         vmax = float(L[12])
@@ -19,6 +21,7 @@ def read_tcvital(filename):
         tc_tmp['lat'] = lat
         tc_tmp['vmax'] = vmax
         tc_dict[tc_id] = tc_tmp
+        counter += 1
     return tc_dict 
 
 def find_center(var, lon, lat, tc_lon, tc_lat):
@@ -45,7 +48,6 @@ def find_center(var, lon, lat, tc_lon, tc_lat):
     tc_lat_new = lat_sel[ic_new,jc_new]
 
     return tc_lon_new, tc_lat_new
-
 
 def detect_tc_center_from_ic(ic_dir, tc_lon, tc_lat, opt=0):
 
