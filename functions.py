@@ -13,6 +13,7 @@ from math import factorial
 from matplotlib.mlab import griddata
 #import scipy.stats as st
 import matplotlib.path as mpath
+from matplotlib.patches import Polygon
 
 ########################################################################
 # functions - calculations (interp, remap, filter ...)
@@ -931,6 +932,16 @@ def cal_bss(pred, clim, obs):
 ###############################################################
 
 #-----------------------------------------------------------------------
+# function to draw a rectangle 
+#-----------------------------------------------------------------------
+# https://stackoverflow.com/questions/12251189/how-to-draw-rectangles-on-a-basemap
+def draw_screen_poly( lats, lons, m):
+    x, y = m( lons, lats )
+    xy = zip(x,y)
+    poly = Polygon( xy, facecolor='red', alpha=0.5 )
+    plt.gca().add_patch(poly)
+
+#-----------------------------------------------------------------------
 # function to remove mid value
 #-----------------------------------------------------------------------
 
@@ -1451,9 +1462,14 @@ def setup_m(basin, fill=True, fill_col='0.8', ft=16, drawcoast=True):
       for grid, col in zip(grids, colors):
 
         #file = '/work/kng/FV3_INPUT_DATA/GRID/' + grid + '/grid_spec.nest02.tile7.nc'
-        file = '/work/kng/FV3_INPUT_DATA/GRID/' + grid + '/C768_grid.tile7.nc'
+        file1 = '/work/kng/FV3_INPUT_DATA/GRID/' + grid + '/C768_grid.tile7.nc'
+        file2 = '/lustre/f2/dev/gfdl/Kun.Gao/SHiELD_IC_v16/' + grid + '/INPUT/C768_grid.tile7.nc'
 
-        f1 = Dataset(file, 'r')
+        try:
+          f1 = Dataset(file1, 'r')
+        except:
+          f1 = Dataset(file2, 'r')
+
         lat = f1.variables['y'][:]
         lon = f1.variables['x'][:]
 
