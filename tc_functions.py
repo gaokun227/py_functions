@@ -864,21 +864,16 @@ def flatten_list(listOflist):
   for sublist in listOflist:
     for item in sublist:
         flat_list.append(item)
-  return np.array(flat_list)
+  return flat_list
 
 # ---
 
 def sel_var(var_all, vmax_all, wind_th1, wind_th2):
-    #m = np.ma.masked_not_equal( ((vmax_all >= wind_th1) & (vmax_all <= wind_th2)),  var_all)
-    #return np.ma.compressed(m)
-
     var_sel = []
-    print vmax_all,wind_th1, wind_th2
     for i in range(len(vmax_all)):
         if vmax_all[i]  >= wind_th1 and vmax_all[i]  <= wind_th2:
            var_sel.append(var_all[i])
     return np.array(var_sel)
-
 
 # --- function to average wind radii
 
@@ -923,8 +918,8 @@ def mean_wind_radii(rad1, rad2, rad3, rad4):
 
     rad_new = np.stack((r1,r2,r3,r4))
 
-    rad_new[rad_new==0] = np.nan
-    rad_new[rad_new>500] = np.nan
+    rad_new[rad_new<1] = np.nan
+    rad_new[rad_new>900] = np.nan
    
     return np.nanmean(rad_new, axis=0)
 
@@ -944,6 +939,74 @@ def get_wind_radius(vel_azi, dr, wind_th):
         rad[t] = radius[rind1+rind]
     return rad
 
+# --- function to selected atcf records
+
+def select_atcf_records(tc_dict, min_lti, max_ini_wind, max_lat) :
+
+    wind_all = tc_dict['wind']
+    lat_all = tc_dict['lat']
+    rmw_all = tc_dict['rmw']
+
+    # for testing
+    try:
+      rad1 = tc_dict['rad34_1']
+      rad2 = tc_dict['rad34_2']
+      rad3 = tc_dict['rad34_3']
+      rad4 = tc_dict['rad34_4']
+      r34_all = mean_wind_radii(rad1, rad2, rad3, rad4)
+    except:
+      r34_all = tc_dict['r34']
+
+    tc_dict_g1 = {}
+    tc_dict_g2 = {}
+
+    # do not consider the TC if it is
+    # 1) too weak
+    # 2) too northwards
+    # 3) initially too strong - only applies to model tracks 
+    if np.max(wind_all) < min_lti or np.min(lat_all) > max_lat or wind_all[0] > max_ini_wind:
+       return tc_dict_g1, tc_dict_g2
+
+    # remove high-lat records
+    counter = 0
+    for lat in lat_all:
+      if lat <= max_lat:
+         counter += 1
+      else:
+         break
+    wind_all = wind_all[:counter]
+    lat_all = lat_all[:counter]
+    rmw_all = rmw_all[:counter]
+    r34_all = r34_all[:counter]
+
+    # seperate records before and after peak intensity
+    if len(wind_all) >= 2:
+     idx = np.argmax(wind_all) 
+   
+     if idx >=1:
+      wind_g1 = wind_all[:idx+1]
+      lat_g1 = lat_all[:idx+1]
+      rmw_g1 = rmw_all[:idx+1]
+      r34_g1 = r34_all[:idx+1]
+  
+      tc_dict_g1['wind'] = wind_g1 
+      tc_dict_g1['lat'] = lat_g1 
+      tc_dict_g1['rmw'] = rmw_g1
+      tc_dict_g1['r34'] = r34_g1
+
+     if idx <= len(wind_all)-1:
+      wind_g2 = wind_all[idx:]
+      lat_g2 = lat_all[idx:]
+      rmw_g2 = rmw_all[idx:]
+      r34_g2 = r34_all[idx:]
+
+      tc_dict_g2['wind'] = wind_g2
+      tc_dict_g2['lat'] = lat_g2
+      tc_dict_g2['rmw'] = rmw_g2
+      tc_dict_g2['r34'] = r34_g2
+
+    return tc_dict_g1, tc_dict_g2
+
 # --- function to read atcf
 
 def read_atcf_obs(filename):
@@ -960,7 +1023,6 @@ def read_atcf_obs(filename):
         line = str(line)
         fields = line.split(',')
 
-        # changing info
         latSingle = int(fields[6][:-1])/10.0
         lonSingle = 360.-(int(fields[7][:-1])/10.0)
         hourSingle = fields[2]
@@ -1028,18 +1090,24 @@ def read_atcf(filename, isModel=True, read_wind_prof=False):
            lat.append(latSingle)
            lon.append(lonSingle)
            wind.append(0.5144*int(fields[8]))
+
+           # for b-decks only
            if not isModel and notNamed:
-              if int(fields[8]) >= 65:
+              if len(fields)>=28 and int(fields[8]) >= 65:
                 stormName=fields[27].strip()
-                #print stormName
                 notNamed = False
 
            pres.append(int(fields[9]))
            rad34_1.append(rad1*1.852)                  
            rad34_2.append(rad2*1.852)   
            rad34_3.append(rad3*1.852)   
-           rad34_4.append(rad4*1.852)   
-           rmw.append(int(fields[19])*1.852)
+           rad34_4.append(rad4*1.852)  
+          
+           # some rmw is missing from b-decks 
+           if len(fields)>=20:
+             rmw.append(int(fields[19])*1.852)
+           else:
+             rmw.append(0.)
 
         # one time info - do it at first line
         if counter == 0:
