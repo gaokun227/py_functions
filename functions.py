@@ -19,6 +19,10 @@ from matplotlib.patches import Polygon
 # functions - calculations (interp, remap, filter ...)
 ########################################################################
 
+#-----------------------------------------------------------------------
+# function to mask 3D data out of selected box
+#-----------------------------------------------------------------------
+
 def mask_3dvar(var, lon_str, lon_end, lat_str, lat_end, grid_file='/work/kng/FV3_INPUT_DATA/GRID/C768r10n4_atl_new/grid_spec.nest02.tile7.nc'):
 
   lon_name = 'grid_lont'
