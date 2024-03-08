@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.cm as	cm
-from mpl_toolkits.basemap import Basemap
+#from mpl_toolkits.basemap import Basemap
 import datetime as dt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from netCDF4 import Dataset 
@@ -10,10 +10,12 @@ from netCDF4 import Dataset
 import math
 from math import factorial
 #import scipy.io
-from matplotlib.mlab import griddata
+#from matplotlib.mlab import griddata
+from scipy.interpolate import griddata
 #import scipy.stats as st
 import matplotlib.path as mpath
 from matplotlib.patches import Polygon
+import matplotlib as mpl
 
 ########################################################################
 # functions - calculations (interp, remap, filter ...)
@@ -124,7 +126,8 @@ def remap_2d(var_ori, lon_ori, lat_ori, lon_new, lat_new, skip=1):
     var_new = np.zeros((nt,nx1,ny1))
 
     for t in np.arange(nt):
-        var_new[t,:,:] = griddata(lon_ori[::skip,::skip].ravel(), lat_ori[::skip,::skip].ravel(), var_ori[t,::skip,::skip].ravel(), lon_new, lat_new, interp='linear')
+        #var_new[t,:,:] = griddata(lon_ori[::skip,::skip].ravel(), lat_ori[::skip,::skip].ravel(), var_ori[t,::skip,::skip].ravel(), lon_new, lat_new, method='linear')
+        var_new[t,:,:] = griddata((lon_ori[::skip,::skip].ravel(), lat_ori[::skip,::skip].ravel()), var_ori[t,::skip,::skip].ravel(), (lon_new, lat_new), method='linear')
 
     return var_new
 
@@ -179,6 +182,24 @@ def cal_z_only(z0,delz):
 
   for k in np.arange(nz):
     zm[k,:,:]=0.5*(ze[k+1,:,:]+ze[k,:,:])
+
+  return zm
+
+def cal_z_1d(z0,delz):
+
+  nz = len(delz)
+
+  ze = np.zeros(nz+1)
+  zm = np.zeros(nz)
+
+# calculate z
+  ze[-1]=z0
+
+  for k in np.arange(nz)[::-1]:
+    ze[k]=ze[k+1]+delz[k]
+
+  for k in np.arange(nz):
+    zm[k]=0.5*(ze[k+1]+ze[k])
 
   return zm
 
@@ -372,6 +393,62 @@ def find_nearest(array,value):
 # functions - read and write
 ########################################################################
 
+#-----------------------------------------------------------------------
+# function to write data in a selected box (nz, ny, nx) 
+#-----------------------------------------------------------------------
+
+def write_boxed_data(filename, x, y, z, var_name_list, var_list):
+
+  fnc = Dataset(filename, 'w',format='NETCDF4_CLASSIC')
+
+  u = var_list[0]
+  nz, ny, nx = np.shape(u)
+
+  # create dim
+  X = fnc.createDimension('X', nx)
+  Y = fnc.createDimension('Y', ny)
+  Z = fnc.createDimension('Z', nz)
+
+  # create var
+  var_w = fnc.createVariable('x', np.float32, ('Y', 'X'))
+  var_w[:,:] = x
+
+  var_w = fnc.createVariable('y', np.float32, ('Y', 'X'))
+  var_w[:,:] = y
+
+  var_w = fnc.createVariable('z', np.float32, ('Z'))
+  var_w[:] = z 
+
+  for var_name, var in zip(var_name_list, var_list):
+    var_w = fnc.createVariable(var_name, np.float32, ('Z', 'Y', 'X'))
+    var_w[:,:,:] = var
+
+  fnc.close()
+
+def write_azi_mean_data(filename, r, z, t, var_name_list, var_list):
+
+  fnc = Dataset(filename, 'w',format='NETCDF4_CLASSIC')
+
+  u = var_list[0]
+  nt, nz, nr = np.shape(u)
+
+  # create dim
+  X = fnc.createDimension('X', nr)
+  Z = fnc.createDimension('Z', nz)
+  T = fnc.createDimension('T', nt)
+
+  # create var
+  var_w = fnc.createVariable('r', np.float32, ('X'))
+  var_w[:] = r 
+
+  var_w = fnc.createVariable('z', np.float32, ('Z'))
+  var_w[:] = z 
+
+  for var_name, var in zip(var_name_list, var_list):
+    var_w = fnc.createVariable(var_name, np.float32, ('T', 'Z', 'X'))
+    var_w[:,:,:] = var
+
+  fnc.close()
 
 #-----------------------------------------------------------------------
 # function to write nc 
@@ -390,6 +467,20 @@ def write_nc(var, var_name, file_name):
  var_w = fnc.createVariable(var_name, np.float32, ('X', 'Y'))
  var_w[:,:] = var
  
+ fnc.close()
+
+def write_nc_1d(var, var_name, file_name):
+
+ fnc = Dataset(file_name, 'w',format='NETCDF4_CLASSIC')
+
+ # create dim
+ nz = len(var)
+ Z = fnc.createDimension('z', nz)
+
+ # create var
+ var_w = fnc.createVariable(var_name, np.float32, ('Z'))
+ var_w[:] = var
+
  fnc.close()
 
 #-----------------------------------------------------------------------
@@ -430,8 +521,13 @@ def read_mat(file_name,var_name):
 #-----------------------------------------------------------------------
 
 def write_txt(data, outfile = './var.txt' ):
-       output =  open(outfile,"w")
-       nn = np.size(data)
+    output =  open(outfile,"w")
+    nn = len(data)
+    recfmt = '%12.6f\n'
+    for i in np.arange(nn):
+        recstr = recfmt % (data[i])
+        output.write(recstr)
+    output.close()
 
 #-----------------------------------------------------------------------
 # function to read txt
@@ -936,6 +1032,38 @@ def cal_bss(pred, clim, obs):
 ###############################################################
 
 #-----------------------------------------------------------------------
+# Radar colormap 
+#-----------------------------------------------------------------------
+
+def radar_colormap():
+    nws_reflectivity_colors = [
+    "#646464", # ND
+    "#ccffff", # -30
+    "#cc99cc", # -25
+    "#996699", # -20
+    "#663366", # -15
+    "#cccc99", # -10
+    "#999966", # -5
+    "#646464", # 0
+    "#04e9e7", # 5
+    "#019ff4", # 10
+    "#0300f4", # 15
+    "#02fd02", # 20
+    "#01c501", # 25
+    "#008e00", # 30
+    "#fdf802", # 35
+    "#e5bc00", # 40
+    "#fd9500", # 45
+    "#fd0000", # 50
+    "#d40000", # 55
+    "#bc0000", # 60
+    "#f800fd", # 65
+    "#9854c6", # 70
+    "#fdfdfd" # 75
+    ]
+    return mpl.colors.ListedColormap(nws_reflectivity_colors)
+
+#-----------------------------------------------------------------------
 # function to draw a rectangle 
 #-----------------------------------------------------------------------
 # https://stackoverflow.com/questions/12251189/how-to-draw-rectangles-on-a-basemap
@@ -1433,31 +1561,31 @@ def setup_m(basin, fill=True, fill_col='0.8', ft=16, drawcoast=True):
     if drawcoast:
        m.drawcoastlines(color='grey')
 
+    '''
     if basin == 'NAtl_wnest' or basin == 'NAtl_wnest_fill':
 
-	#file = '/home/kng/plot_grid/grid_spec_for_py/grid_spec.nest02.nc'
+	   #file = '/home/kng/plot_grid/grid_spec_for_py/grid_spec.nest02.nc'
         file = '/work/kng/FV3_INPUT_DATA/GRID/C768r10n4_atl_new/grid_spec.nest02.tile7.nc'
-	f1 = Dataset(file, 'r')
-	lat = f1.variables['grid_lat'][:]
-	lon = f1.variables['grid_lon'][:]
+        f1 = Dataset(file, 'r')
+        lat = f1.variables['grid_lat'][:]
+        lon = f1.variables['grid_lon'][:]
+        lat1 = lat[1,:] 
+        lat2 = lat[:,1]
+        lat3 = lat[:,-1]
+	    lat4 = lat[-1,:]
 
-	lat1 = lat[1,:]
-	lat2 = lat[:,1]
-	lat3 = lat[:,-1]
-	lat4 = lat[-1,:]
-
-	lon1 = lon[1,:]
-	lon2 = lon[:,1]
-	lon3 = lon[:,-1]
-	lon4 = lon[-1,:]
+	    lon1 = lon[1,:]
+	    lon2 = lon[:,1]
+	    lon3 = lon[:,-1]
+	    lon4 = lon[-1,:]
 
         col = 'grey'
         linewi = 1.5
 
-	m.plot(lon1,lat1,color = col, linestyle = '--',linewidth = linewi)
-	m.plot(lon2,lat2,color = col, linestyle = '--',linewidth = linewi)
-	m.plot(lon3,lat3,color = col, linestyle = '--',linewidth = linewi)
-	m.plot(lon4,lat4,color = col, linestyle = '--',linewidth = linewi)
+	    m.plot(lon1,lat1,color = col, linestyle = '--',linewidth = linewi)
+	    m.plot(lon2,lat2,color = col, linestyle = '--',linewidth = linewi)
+	    m.plot(lon3,lat3,color = col, linestyle = '--',linewidth = linewi)
+	    m.plot(lon4,lat4,color = col, linestyle = '--',linewidth = linewi)
 
     if basin == 'NAtl_3nests':
 
@@ -1494,6 +1622,7 @@ def setup_m(basin, fill=True, fill_col='0.8', ft=16, drawcoast=True):
         m.plot(lon2,lat2,color = col, linestyle = '--',linewidth = linewi)
         m.plot(lon3,lat3,color = col, linestyle = '--',linewidth = linewi)
         m.plot(lon4,lat4,color = col, linestyle = '--',linewidth = linewi)
+    '''
 
     return m
 
@@ -1819,106 +1948,7 @@ def trim_wind(all_wind, wind_min):
 # simple tracker
 #-----------------------------------------------------------------------
 
-def simple_tracker(lon, lat, ws10m, slp):
-
-	dr = 0.03 # deg
-
-        try:
-	  NT, nx, ny = np.shape(ws10m)
-        except:
-          nx, ny = np.shape(ws10m)
-          ws10m_new = np.zeros((1,nx,ny)) 
-          slp_new = np.zeros((1,nx,ny))
-          ws10m_new[0,:,:] = ws10m
-          slp_new[0,:,:] = slp
-          ws10m = ws10m_new
-          slp = slp_new
-          NT = 1
-
-	vmax_all = []
-	pmin_all = []
-	rmw_all = []
-	lon_pmin_all = []
-	lat_pmin_all = []
-	lon_vmin_all = []
-	lat_vmin_all = []
-	lon_vmax_all = []
-	lat_vmax_all = []
-
-	for i in np.arange(NT):
-
-	    ws10m1 = ws10m[i,:,:]
-	    slp1 = slp[i,:,:]
-
-	    # --- step 1: find max wind and its location
-	    vmax1 = np.max(ws10m1)
-	    lon_vmax = lon[np.where(ws10m1==vmax1)]
-	    lat_vmax = lat[np.where(ws10m1==vmax1)]
-
-	    # select var in a box for later analysis
-	    ind1, ind2 = np.where(ws10m1==vmax1)
-            ind1, ind2 = ind1[0], ind2[0]
-            print ind1, ind2
-
-	    scope = int(1./dr) # 1 deg as half box length
-
-	    lon_sel = lon[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
-	    lat_sel = lat[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
-	    ws_sel = ws10m1[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
-	    slp_sel = slp1[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
-	   
-	    # --- step 2: find pmin and its location
-
-	    pmin1 = np.min(slp_sel)
-	    lon_pmin = lon_sel[np.where(slp_sel==pmin1)]
-	    lat_pmin = lat_sel[np.where(slp_sel==pmin1)]
-
-	    # --- step 3: find vmin and its location
-	    ind1, ind2 = np.where(slp_sel==pmin1)
-            ind1, ind2 = ind1[0], ind2[0]
-
-            scope = 10 # 10 grids as half box length
-	 
-	    lon_sel2 = lon_sel[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
-	    lat_sel2 = lat_sel[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
-	    ws_sel2 = ws_sel[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
-	    vmin1 = np.min(ws_sel2)
-	    lon_vmin = lon_sel2[np.where(ws_sel2==vmin1)]
-	    lat_vmin = lat_sel2[np.where(ws_sel2==vmin1)]
-
-	    # --- step 4: get rmw
-	    rmw1 = cal_dist_2p(lon_vmin, lat_vmin, lon_vmax, lat_vmax)
-	     
-	    vmax_all.append(vmax1)
-	    pmin_all.append(pmin1)
-	    rmw_all.append(rmw1)
-	    lon_pmin_all.append(lon_pmin)
-	    lat_pmin_all.append(lat_pmin)
-	    lon_vmin_all.append(lon_vmin)
-	    lat_vmin_all.append(lat_vmin)
-	    lon_vmax_all.append(lon_vmax)
-	    lat_vmax_all.append(lat_vmin)
-
-            '''
-	    plt.subplot(121)
-	    plt.contourf(lon_sel, lat_sel, ws_sel, 50)
-	    plt.plot(lon_vmin, lat_vmin, 'w*', ms = 10)
-	    plt.plot(lon_vmax, lat_vmax, 'w*', ms = 10)
-
-	    plt.subplot(122)
-	    plt.contourf(lon_sel, lat_sel, slp_sel, 50)
-	    plt.plot(lon_pmin, lat_pmin, 'w*', ms = 10)
-	    plt.show()
-            '''
-
-	return np.array(vmax_all), np.array(pmin_all), np.array(rmw_all),\
-               np.array(lon_pmin_all), np.array(lat_pmin_all)
-
-#-----------------------------------------------------------------------
-# simple tracker - DP
-#-----------------------------------------------------------------------
-
-def simpler_tracker(lon, lat, ws10m, slp):
+def simpler_tracker(lon, lat, ws10m, slp, dr=1./32):
 
         try:
           NT, nx, ny = np.shape(ws10m)
@@ -1938,14 +1968,16 @@ def simpler_tracker(lon, lat, ws10m, slp):
         lat_pmin_all = []
 
         mid = int((nx-1)/2)
-        dr = 1/32.
         scope = int(5/dr)
 
         for i in np.arange(NT):
 
-            slp1 = slp[i,mid-scope:mid+scope,mid-scope:mid+scope]
-            lon1 = lon[mid-scope:mid+scope,mid-scope:mid+scope]
-            lat1 = lat[mid-scope:mid+scope,mid-scope:mid+scope]
+            slp1 = slp[i, :, :] #mid-scope:mid+scope,mid-scope:mid+scope]
+            lon1 = lon #[mid-scope:mid+scope,mid-scope:mid+scope]
+            lat1 = lat #[mid-scope:mid+scope,mid-scope:mid+scope]
+
+            #if dr <= 0.01: # 1km
+            #   slp1 = smooth_2d(slp1, 1)
 
             ws10m1 = ws10m[i,:,:]
 
@@ -1982,162 +2014,6 @@ def simplest_tracker(ws10m, slp):
             pmin_all.append(pmin1)
 
         return np.array(vmax_all), np.array(pmin_all)
-
-def simple_tracker_dp(lon, lat, ws10m, slp):
-
-        dr = 1./30 # deg
-
-        NT, nx, ny = np.shape(ws10m)
-
-        vmax_all = []
-        pmin_all = []
-        rmw_all = []
-
-        for i in np.arange(NT):
-
-            ws10m1 = ws10m[i,:,:]
-            slp1 = slp[i,:,:]
-
-            # --- step 1: find max wind min pres 
-            vmax1 = np.max(ws10m1)
-            lon_vmax = lon[np.where(ws10m1==vmax1)]
-            lat_vmax = lat[np.where(ws10m1==vmax1)]
-
-            ind1, ind2 = np.where(ws10m1==vmax1)
-            ind1, ind2 = ind1[0], ind2[0]
-            scope = int(1.5/dr) # half box
-
-            slp_sel = slp1[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
-            pmin1 = np.min(slp_sel)
-
-            # --- step2: find vmin and its location
-            ind1, ind2 = np.where(slp_sel==pmin1)
-            ind1, ind2 = ind1[0], ind2[0]
-            scope = 10 # 10 grids as half box length
-
-            lon_sel = lon[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
-            lat_sel = lat[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
-            ws_sel = ws10m1[ind1-scope:ind1+scope, ind2-scope:ind2+scope]
-            vmin1 = np.min(ws_sel)
-            lon_vmin = lon_sel[np.where(ws_sel==vmin1)]
-            lat_vmin = lat_sel[np.where(ws_sel==vmin1)]
-
-            # --- step 3: get rmw
-            rmw1 = cal_dist_2p(lon_vmin, lat_vmin, lon_vmax, lat_vmax)
-
-            vmax_all.append(vmax1)
-            pmin_all.append(pmin1)
-            rmw_all.append(rmw1)
-
-        return np.array(vmax_all), np.array(pmin_all), np.array(rmw_all)
-
-#-----------------------------------------------------------------------
-# function to get desired TC records 
-#-----------------------------------------------------------------------
-
-def get_good_tc_records(tc_id, all_date, all_lon, all_lat, all_pres, all_wind, \
-                        wind_max_life, wind_min, lat_max, span_min, pre_peak, \
-                        read_nest,read_aqua, data_range, grid_file):
-
-# !!! NOTE Aug 31 2021: added grid file as a input, which should be the native grid 
- 
-# wind_max_life  - minimum intensity the TC needs to reach
-# wind_min       - only select data when TC maintains at least this intensity (m/s)
-# lat_max        - only select data when TS is to the south of this lat - mostly to remove mid-latitude influence
-# pre_peak       - only select data before TC reaching peak intensity
-# span_min       - only select data if the TC last longer than this (x 6h)
-# read_nest      - if read nested grid results
-# data_range     - 1/2 width of the TC box in deg
-
-                tc_date = []
-                tc_lon  = []
-                tc_lat  = []
-                tc_pres = []
-                tc_wind = []
-
-                # --- NEW STEP: extract nested grid lat/lon edges as 2xn array (lon, lat)
-		lon_name = 'grid_lont'
-		lat_name = 'grid_latt'
-
-                fn = Dataset(grid_file, 'r')
-		lat_n = fn.variables[lat_name][:]
-		lon_n = fn.variables[lon_name][:]
-		lat_1 = lat_n[0,:]
-		lat_2 = lat_n[:,0]
-	        lat_3 = lat_n[:,-1]
-		lat_4 = lat_n[-1,:]
-
-		lon_1 = lon_n[0,:]
-    	        lon_2 = lon_n[:,0]
-                lon_3 = lon_n[:,-1]
-                lon_4 = lon_n[-1,:]
-
-                e1 = np.stack((lon_1, lat_1))
-                e2 = np.stack((lon_2, lat_2))
-                e3 = np.stack((lon_3, lat_3))
-                e4 = np.stack((lon_4, lat_4))
-
-                #print np.shape(e1), np.shape(e2), np.shape(e3), np.shape(e4) 
-                nest_edges = np.concatenate((e1, e2, e3, e4), axis = 1) 
-
-                # --- trim TC record for nested domain only - the TC needs to be away from the boundaries
-
-                read_this_tc = True
-
-                if read_nest:
-                   all_date, all_lon, all_lat, all_pres, all_wind = \
-                   trim_for_nest(all_date, all_lon, all_lat, all_pres, all_wind, data_range, nest_edges)
-
-                   if len (all_date) < span_min:
-                      print 'TC ID = ', tc_id, ': the trimmed record is too short ; record length = ', len(all_date) 
-
-                      read_this_tc = False
-
-                if read_aqua:
-                   all_date, all_lon, all_lat, all_pres, all_wind = \
-                   trim_for_aqua(all_date, all_lon, all_lat, all_pres, all_wind, data_range, nest_edges)
-
-                   if len (all_date) < span_min:
-                      print 'TC ID = ', tc_id, ': the trimmed record is too short ; record length = ', len(all_date) 
-
-                      read_this_tc = False
-
-                # --- remove data not needed - find tc_str and tc_end
-
-                if read_this_tc:
-
-                 if np.max(all_wind) > wind_max_life:
-
-                  # a. wind speed selection
-                  tc_str = [ n for n,i in enumerate(all_wind) if i>wind_min ][0]
-                  tc_end = [ n for n,i in enumerate(all_wind) if i>wind_min ][-1]
-
-                  # b. lat range selection
-                  if np.max(all_lat) > lat_max:
-                   tc_end1 = [ n for n,i in enumerate(all_lat) if i>lat_max ][0]
-                   if tc_end1 < tc_end:
-                      tc_end = tc_end1
-
-                  # c. before peak only
-                  if pre_peak:
-                   tc_end1 = find_nearest(all_wind,np.max(all_wind))
-                   if tc_end1 < tc_end:
-                      tc_end = tc_end1
-
-                  if (tc_end - tc_str)+1 >= span_min:
-                     tc_date = all_date[tc_str:tc_end+1]
-                     tc_lon  = all_lon[tc_str:tc_end+1]
-                     tc_lat  = all_lat[tc_str:tc_end+1]
-                     tc_pres = all_pres[tc_str:tc_end+1]
-                     tc_wind = all_wind[tc_str:tc_end+1]
-                  else:
-                     print 'TC ID = ', tc_id, ': the record is too short ; record length = ', tc_end-tc_str+1
-
-                 else: # if is_tc and np.max(all_wind) > wind_max_life is not true
-                   print 'TC ID = ', tc_id, ': not strong enough ; max wind = ', np.max(all_wind)
-
-                return tc_date, tc_lon, tc_lat, tc_pres, tc_wind
-
 
 #-----------------------------------------------------------------------
 # function to perform azimuthal average 
@@ -2191,6 +2067,7 @@ def azi_ave_wind(xm,ym,u1,v1,radius,bin_width):
        vt_masked = np.ma.MaskedArray(vt1,mask=~mask)
        vel_masked = np.ma.MaskedArray(vel1,mask=~mask)
 
+       #print vr_masked
        vr_bin[ri] = np.nanmean(vr_masked)
        vt_bin[ri] = np.nanmean(vt_masked)
        vel_bin[ri] = np.nanmean(vel_masked)
@@ -2397,7 +2274,7 @@ def read_tc_azi(tc_files, var_name, pre_peak=False, skip=0):
   tc_info_all = []
   tc_id = 0
   for tc_file in tc_files:
-    print tc_file
+    #print tc_file
     tc_id = tc_id +1
     f1 = Dataset(tc_file, 'r')
     tc_lon  = f1.variables['tc_lon'][:]
@@ -3567,7 +3444,7 @@ def find_tc_track_density(lonm, latm, lon_ntc, lat_ntc, wind_ntc, TSmin, Hmin, d
         sel_j=np.arange(indj[0]-scope,indj[0]+scope)
 
         for i in sel_i:
-	  for j in sel_j:
+          for j in sel_j:
             if i >-1 and i < nx-1 and j > -1 and j < ny-1:
                 case1=False
                 case2=False
@@ -3627,7 +3504,7 @@ def find_tc_gen_density(lonm, latm, lon, lat, deg):
         sel_j=np.arange(indj[0]-scope,indj[0]+scope+1)
 
         for i in sel_i:
-	  for j in sel_j:
+          for j in sel_j:
             if i >-1 and i < nx-1 and j > -1 and j < ny-1:
                 if lon[k]>=lonm[i][j]-deg and lon[k]<=lonm[i][j]+deg \
                    and lat[k]>=latm[i][j]-deg and lat[k]<=latm[i][j]+deg:
@@ -3661,7 +3538,7 @@ def find_tc_record_density(lonm, latm, lon, lat, wind, wind_th, deg):
         sel_j=np.arange(indj[0]-scope,indj[0]+scope+1)
 
         for i in sel_i:
-	  for j in sel_j:
+          for j in sel_j:
             if i >-1 and i < nx-1 and j > -1 and j < ny-1:
                 if lon[k]>=lonm[i][j]-deg and lon[k]<=lonm[i][j]+deg \
                    and lat[k]>=latm[i][j]-deg and lat[k]<=latm[i][j]+deg \
@@ -3693,7 +3570,7 @@ def find_tc_record_density_3(lonm, latm, lon, lat, wind, deg):
         sel_j=np.arange(indj[0]-scope,indj[0]+scope+1)
 
         for i in sel_i:
-	  for j in sel_j:
+          for j in sel_j:
             if i >-1 and i < nx-1 and j > -1 and j < ny-1:
                 if lon[k]>=lonm[i][j]-deg and lon[k]<=lonm[i][j]+deg \
                    and lat[k]>=latm[i][j]-deg and lat[k]<=latm[i][j]+deg:
@@ -3883,7 +3760,7 @@ def find_tc_gen_regional(lonm, latm, lon, lat, deg):
         sel_j=np.arange(indj[0]-scope,indj[0]+scope+1)
 
         for i in sel_i:
-	  for j in sel_j:
+          for j in sel_j:
             if i >-1 and i < nx-1 and j >-1 and j < ny-1:
                 if lon[k]>=lonm[i][j]-deg and lon[k]<=lonm[i][j]+deg \
                    and lat[k]>=latm[i][j]-deg and lat[k]<=latm[i][j]+deg: 
@@ -3938,7 +3815,7 @@ def find_tc_regional(lonm, latm, lon_list, lat_list, wind_list, deg):
         sel_j=np.arange(indj[0]-scope,indj[0]+scope+1)
 
         for i in sel_i:
-	  for j in sel_j:
+          for j in sel_j:
             if i >-1 and i < nx-1 and j >-1 and j < ny-1:
                 if lon[k]>=lonm[i][j]-deg and lon[k]<=lonm[i][j]+deg \
                    and lat[k]>=latm[i][j]-deg and lat[k]<=latm[i][j]+deg: 
