@@ -57,7 +57,7 @@ class process_mettc():
     ax=plt.subplot(111)
 
     for model, col in zip(model_list, colors):
-      print 'plotting', model, type
+      #print 'plotting', model, type
       label = model_name_map[model]
       ax.plot(time, tc_dict[model], marker='o', lw=lw, ms=ms, mec=mec, label = label, c=col)
 
@@ -332,7 +332,7 @@ class stratify_TC_error():
      elif 'error' in type:
          oneModelDict = self.error_dict[modelID]
      else:
-         print 'wrong type!!!'
+         printi('wrong type!!!')
      for stormID, value in oneModelDict.iteritems():
          value_list.append(value)
          stormID_list.append(stormID)
@@ -422,7 +422,7 @@ class stratify_TC_error():
          oneModelDict1 = self.error_dict[modelID1]
          oneModelDict2 = self.error_dict[modelID2]
      else:
-         print 'wrong type!!!'
+         print('wrong type!!!')
      for stormID, value1 in oneModelDict1.iteritems():
          stormID_list.append(stormID)
          count_list.append(self.count_dict[modelID1][stormID])
@@ -518,7 +518,7 @@ class stratify_TC_error():
          elif 'error' in type:
             oneModelDict = self.error_dict[modelID]
          else:
-            print 'wrong type!!!'
+            print('wrong type!!!')
          value_list = []
          for stormID, value in oneModelDict.iteritems():
              value_list.append(value)
@@ -773,8 +773,8 @@ def plot_stat(tc_dict, keyword, card_name, pic_dir, model_name_map, model_sel, c
  
     # significance test stuff (two-tail student t test)
     if  ('error' in keyword) and (len(sig_test_model_list) >=1):
-       print 'doing significance test'
-       print sig_test_model_list 
+       #print 'doing significance test'
+       #print sig_test_model_list 
        for model in sig_test_model_list:
           alpha = 1.960
           #if comm_number >= 40 and comm_number < 80:
@@ -789,7 +789,7 @@ def plot_stat(tc_dict, keyword, card_name, pic_dir, model_name_map, model_sel, c
     ax=plt.subplot(111)
 
     for i in range(num_models):
-      print 'plotting', models[i]+'_'+keyword
+      #print 'plotting', models[i]+'_'+keyword
       label = model_name_map[models[i]]
       ax.plot(time, tc_dict[models[i]+'_'+keyword], marker='o', lw=lw, ms=ms, mec=mec, label = label, c=colors[i])
       if ('error' in keyword) and (models[i] in sig_test_model_list):
@@ -1128,7 +1128,7 @@ def read_atcf(filename, isModel=True, read_wind_prof=False):
        str_file = file_dir+'/*structure*'
        str_files = glob.glob(str_file)
        if len(str_files) != 1:
-         print 'Warning: invalid structure filename'
+         print('Warning: invalid structure filename')
        else:
          str_file = str_files[0]
 

@@ -269,6 +269,50 @@ def cal_dist_2p(lon1,lat1,lon2,lat2):
    return d
 
 #-----------------------------------------------------------------------
+# function to get spectrum of the 2d field
+#-----------------------------------------------------------------------
+
+def get_spectrum(var_2d, dx):
+
+    # Detrend along x and y
+    phi = signal.detrend(signal.detrend(var[t,:,:],axis=1),axis=0)
+
+    # Apply hamming window
+    xwindow = np.tile(np.hamming(phi.shape[1]),(phi.shape[0],1) )
+    ywindow = np.tile((np.hamming(phi.shape[0]),),(phi.shape[1],1)).T
+    phi = phi*xwindow*ywindow
+
+    PHI = np.fft.rfft2(phi)
+
+    nx = int(PHI.shape[0]/2.)
+    ny = PHI.shape[1]
+    nn = np.min(phi.shape)
+    PHI = PHI[:nx,:ny].T.flatten()
+
+    # Implementing algorithm of Denis, Cote and Laprise (MWR, 2002)
+    k = np.arange(nx)/float(nx)
+    l = np.arange(ny)/float(ny)
+    kk, ll = np.meshgrid(k,l)
+    waveno = np.floor(np.sqrt(kk**2 + ll**2)*np.min((nx,ny))/da).flatten()
+    nl = np.min(( len(k), len(l) ))/da
+
+    X = np.zeros(nl)
+    for i in np.arange(nl):
+       A = np.where(waveno == i)
+       X[i] = np.sum( np.abs(PHI[A])**2 )  / da #Same amount of energy in each band, normalized with respect to one-wavenumber-wide bands
+
+       vv = (np.arange(nl)+0.5)*da
+       LL = nx*dx/vv #convert to wavelength
+       #Clip wavenumber 1, which has been removed by detrending
+       LL = LL[1:]
+       vv = vv[1:]
+       X  = X[1:]
+
+    #plt.loglog(LL,X,color=color,alpha=0.15,zorder=-1)
+
+    return LL, X
+
+#-----------------------------------------------------------------------
 # function to do savitzky golay filter
 # Note - needs to be replaced by scipy.signal.savgol_filter
 #-----------------------------------------------------------------------
