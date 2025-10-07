@@ -16,10 +16,23 @@ from scipy.interpolate import griddata
 import matplotlib.path as mpath
 from matplotlib.patches import Polygon
 import matplotlib as mpl
+import matplotlib.colors as mcolors
 
 ########################################################################
 # functions - calculations (interp, remap, filter ...)
 ########################################################################
+
+#-----------------------------------------------------------------------
+# function to pad 2D data
+#-----------------------------------------------------------------------
+
+def pad_var_2d(var, pad_value=np.nan):
+   NX, _ = np.shape(var)
+   var_new = np.zeros((2*NX,2*NX)) + pad_value
+   ind1 = NX/2
+   ind2 = NX/2+NX
+   var_new[ind1:ind2,ind1:ind2] = var
+   return var_new
 
 #-----------------------------------------------------------------------
 # function to mask 3D data out of selected box
@@ -274,8 +287,11 @@ def cal_dist_2p(lon1,lat1,lon2,lat2):
 
 def get_spectrum(var_2d, dx):
 
+    da = 1
+
     # Detrend along x and y
-    phi = signal.detrend(signal.detrend(var[t,:,:],axis=1),axis=0)
+    #phi = signal.detrend(signal.detrend(var[t,:,:],axis=1),axis=0)
+    phi = np.squeeze(var_2d)
 
     # Apply hamming window
     xwindow = np.tile(np.hamming(phi.shape[1]),(phi.shape[0],1) )
@@ -295,22 +311,25 @@ def get_spectrum(var_2d, dx):
     kk, ll = np.meshgrid(k,l)
     waveno = np.floor(np.sqrt(kk**2 + ll**2)*np.min((nx,ny))/da).flatten()
     nl = np.min(( len(k), len(l) ))/da
+    nl = int(nl)
 
-    X = np.zeros(nl)
+    X = np.zeros(int(nl))
+    
     for i in np.arange(nl):
        A = np.where(waveno == i)
        X[i] = np.sum( np.abs(PHI[A])**2 )  / da #Same amount of energy in each band, normalized with respect to one-wavenumber-wide bands
 
-       vv = (np.arange(nl)+0.5)*da
-       LL = nx*dx/vv #convert to wavelength
-       #Clip wavenumber 1, which has been removed by detrending
-       LL = LL[1:]
-       vv = vv[1:]
-       X  = X[1:]
+    vv = (np.arange(nl)+0.5)*da
+    LL = nx*dx/vv #convert to wavelength
+
+    #Clip wavenumber 1, which has been removed by detrending
+    LL = LL[1:]
+    vv = vv[1:]
+    X  = X[1:]
 
     #plt.loglog(LL,X,color=color,alpha=0.15,zorder=-1)
 
-    return LL, X
+    return LL, vv,  X
 
 #-----------------------------------------------------------------------
 # function to do savitzky golay filter
@@ -1074,6 +1093,29 @@ def cal_bss(pred, clim, obs):
 ###############################################################
 # functions - plots
 ###############################################################
+
+#-----------------------------------------------------------------------
+# A colormap for cloud image
+#-----------------------------------------------------------------------
+
+def cloud_color_map():
+
+    # This function was developped by Kai-Yuan Cheng
+    # source code from Kai-Yuan Cheng
+
+    # get colormap
+    ncolors = 256
+    colors = plt.cm.binary_r(np.linspace(0.0,1.0,256))
+
+    # change alpha values
+    colors[:,-1] = np.linspace(0.0,1.0,ncolors)
+
+    # create a colormap object
+    mymap = mcolors.LinearSegmentedColormap.from_list(name='cloud_color_map',colors=colors)
+
+    # register this new colormap with matplotlib
+    if 'cloud_color_map' not in mpl.colormaps:
+        mpl.colormaps.register(cmap=mymap)
 
 #-----------------------------------------------------------------------
 # Radar colormap 
@@ -1992,7 +2034,7 @@ def trim_wind(all_wind, wind_min):
 # simple tracker
 #-----------------------------------------------------------------------
 
-def simpler_tracker(lon, lat, ws10m, slp, dr=1./32):
+def simple_tracker(lon, lat, ws10m, slp, dr=1./32):
 
         try:
           NT, nx, ny = np.shape(ws10m)
@@ -2032,6 +2074,55 @@ def simpler_tracker(lon, lat, ws10m, slp, dr=1./32):
             lat_pmin = lat1[np.where(slp1==pmin1)]
            
             #print lon_pmin
+
+            vmax_all.append(vmax1)
+            pmin_all.append(pmin1)
+            lon_pmin_all.append(lon_pmin[0])
+            lat_pmin_all.append(lat_pmin[0])
+
+        return np.array(vmax_all), np.array(pmin_all), np.array(lon_pmin_all), np.array(lat_pmin_all)
+
+#-----------------------------------------------------------------------
+# simple tracker - opt 2 (find max wind location and then pmin location)
+#-----------------------------------------------------------------------
+
+def simple_tracker_opt2(lon, lat, ws10m, slp, dr=1./32):
+
+        try:
+          NT, nx, ny = np.shape(ws10m)
+        except:
+          nx, ny = np.shape(ws10m)
+          ws10m_new = np.zeros((1,nx,ny))
+          slp_new = np.zeros((1,nx,ny))
+          ws10m_new[0,:,:] = ws10m
+          slp_new[0,:,:] = slp
+          ws10m = ws10m_new
+          slp = slp_new
+          NT = 1
+
+        vmax_all = []
+        pmin_all = []
+        lon_pmin_all = []
+        lat_pmin_all = []
+
+        for t in np.arange(NT):
+
+            ws10m1 = ws10m[t,:,:]
+
+            vmax1 = np.max(ws10m1)
+
+            _i, _j = np.where(ws10m1==vmax1)
+            scope = int(1./dr)
+            i, j = _i[0],  _j[0]
+
+            slp1 = slp[t, i-scope:i+scope, j-scope:j+scope]
+            lon1 = lon[i-scope:i+scope, j-scope:j+scope]
+            lat1 = lat[i-scope:i+scope, j-scope:j+scope]
+
+            pmin1 = np.min(slp1)
+
+            lon_pmin = lon1[np.where(slp1==pmin1)]
+            lat_pmin = lat1[np.where(slp1==pmin1)]
 
             vmax_all.append(vmax1)
             pmin_all.append(pmin1)
