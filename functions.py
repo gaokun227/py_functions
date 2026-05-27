@@ -11,13 +11,48 @@ import math
 from math import factorial
 #import scipy.io
 #from matplotlib.mlab import griddata
+from scipy.interpolate import griddata
 #import scipy.stats as st
 import matplotlib.path as mpath
 from matplotlib.patches import Polygon
+from scipy.ndimage import convolve
 
 ########################################################################
-# functions - calculations (interp, remap, filter ...)
+# functions - general (interp, remap, filter ...)
 ########################################################################
+
+#-----------------------------------------------------------------------
+# function to flatten a list of list 
+#-----------------------------------------------------------------------
+
+def flatten_list(listOflist):
+  flat_list = []
+  for sublist in listOflist:
+    for item in sublist:
+        flat_list.append(item)
+  return flat_list
+
+
+#-----------------------------------------------------------------------
+# function to do NxN points averaging 
+#-----------------------------------------------------------------------
+
+def n2_points_average(arr, n):
+
+    kernel = np.ones((n, n)) / float(n*n)
+    smoothed = convolve(arr, kernel, mode='reflect')
+
+    return smoothed
+
+#-----------------------------------------------------------------------
+# function to calculate hours from the reference date
+#-----------------------------------------------------------------------
+
+def hours_from_reference(date_str, date):
+    reference_date_obj = dt.datetime.strptime(date_str, "%Y%m%d%H")
+    date_obj = dt.datetime.strptime(date, "%Y%m%d%H")
+    difference = date_obj - reference_date_obj
+    return np.array(difference.total_seconds() / 3600)  # Convert seconds to hours
 
 #-----------------------------------------------------------------------
 # function to mask 3D data out of selected box
@@ -124,7 +159,8 @@ def remap_2d(var_ori, lon_ori, lat_ori, lon_new, lat_new, skip=1):
     var_new = np.zeros((nt,nx1,ny1))
 
     for t in np.arange(nt):
-        var_new[t,:,:] = griddata(lon_ori[::skip,::skip].ravel(), lat_ori[::skip,::skip].ravel(), var_ori[t,::skip,::skip].ravel(), lon_new, lat_new, interp='linear')
+        #var_new[t,:,:] = griddata(lon_ori[::skip,::skip].ravel(), lat_ori[::skip,::skip].ravel(), var_ori[t,::skip,::skip].ravel(), lon_new, lat_new, interp='linear')
+        var_new[t,:,:] = griddata((lon_ori[::skip,::skip].ravel(), lat_ori[::skip,::skip].ravel()), var_ori[t,::skip,::skip].ravel(), (lon_new, lat_new), method='linear')
 
     return var_new
 
@@ -179,6 +215,24 @@ def cal_z_only(z0,delz):
 
   for k in np.arange(nz):
     zm[k,:,:]=0.5*(ze[k+1,:,:]+ze[k,:,:])
+
+  return zm
+
+def cal_z_1d(z0,delz):
+
+  nz = len(delz)
+
+  ze = np.zeros(nz+1)
+  zm = np.zeros(nz)
+
+# calculate z
+  ze[-1]=z0
+
+  for k in np.arange(nz)[::-1]:
+    ze[k]=ze[k+1]+delz[k]
+
+  for k in np.arange(nz):
+    zm[k]=0.5*(ze[k+1]+ze[k])
 
   return zm
 
@@ -340,6 +394,37 @@ def find_nearest(array,value):
 # functions - read and write
 ########################################################################
 
+#-----------------------------------------------------------------------
+# function to write data in a selected box (nz, ny, nx) 
+#-----------------------------------------------------------------------
+
+def write_boxed_data(filename, x, y, z, var_name_list, var_list):
+
+  fnc = Dataset(filename, 'w',format='NETCDF4_CLASSIC')
+
+  u = var_list[0]
+  nz, ny, nx = np.shape(u)
+
+  # create dim
+  X = fnc.createDimension('X', nx)
+  Y = fnc.createDimension('Y', ny)
+  Z = fnc.createDimension('Z', nz)
+
+  # create var
+  var_w = fnc.createVariable('x', np.float32, ('Y', 'X'))
+  var_w[:,:] = x
+
+  var_w = fnc.createVariable('y', np.float32, ('Y', 'X'))
+  var_w[:,:] = y
+
+  var_w = fnc.createVariable('z', np.float32, ('Z'))
+  var_w[:] = z
+
+  for var_name, var in zip(var_name_list, var_list):
+    var_w = fnc.createVariable(var_name, np.float32, ('Z', 'Y', 'X'))
+    var_w[:,:,:] = var
+
+  fnc.close()
 
 #-----------------------------------------------------------------------
 # function to write nc 
@@ -1645,6 +1730,52 @@ def make_contourfs_sec_3p(x1d,z1d,var_plot1,var_plot2,var_plot3,  \
 ########################################################################
 
 #-----------------------------------------------------------------------
+# select record based on wind speed
+#-----------------------------------------------------------------------
+
+def sel_var(var_all, vmax_all, wind_th1, wind_th2):
+    var_sel = []
+    for i in range(len(vmax_all)):
+        if vmax_all[i]  >= wind_th1 and vmax_all[i]  <= wind_th2:
+           var_sel.append(var_all[i])
+    return np.array(var_sel)
+
+#-----------------------------------------------------------------------
+# function to average wind radii
+#-----------------------------------------------------------------------
+
+def mean_wind_radii(rad1, rad2, rad3, rad4):
+    r1 = np.array(rad1)
+    r2 = np.array(rad2)
+    r3 = np.array(rad3)
+    r4 = np.array(rad4)
+
+    rad_new = np.stack((r1,r2,r3,r4))
+
+    rad_new[rad_new<1] = np.nan
+    rad_new[rad_new>900] = np.nan
+   
+    return np.nanmean(rad_new, axis=0)
+
+#-----------------------------------------------------------------------
+# function to get wind radii
+#-----------------------------------------------------------------------
+
+def get_wind_radius(vel_azi, dr, wind_th):
+    nt, nr = np.shape(vel_azi)
+    radius = np.arange(nr)*dr
+    rad = np.zeros(nt)
+    for t in np.arange(nt):
+      vel1 = vel_azi[t,:]
+      if np.max(vel1) < wind_th:
+          rad[t] = np.nan
+      else:
+        rind1 = find_nearest(vel1,np.max(vel1))
+        rind = find_nearest(vel1[rind1:],wind_th)
+        rad[t] = radius[rind1+rind]
+    return rad
+
+#-----------------------------------------------------------------------
 # function to get Cd from z0
 #-----------------------------------------------------------------------
 
@@ -1657,6 +1788,7 @@ def get_cd(znot, zm):
 #-----------------------------------------------------------------------
 # function to cal RMW in km 
 #-----------------------------------------------------------------------
+
 def cal_rmw1(lat1, rmw1):
 
    dist = cal_dist_2p(lat1, 100, lat1, 101)

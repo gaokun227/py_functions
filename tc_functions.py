@@ -6,62 +6,28 @@ import time
 import sys
 import glob
 import os
+import re
 from scipy.stats import norm
 from matplotlib.ticker import PercentFormatter
 
-# --- function to do TC verification 
+# This files contains a collection of functions / class for
+# 1) TC forecast verficaition based on Tim's package
+# 2) ATCF file related operations
 
-def run_verify(work_dir, card_tag, type, model_name_map, do_plot_only = False, model_sel=[], color_sel=[], atcf_dir = '../all/', do_hour0=False, sig_test_model_list=[]):
-
-  if type == 'intensity':
-    card_name = 'icard.'+card_tag
-  elif type == 'track':
-    card_name = 'tcard.'+card_tag
-  elif type == 'radii':
-    card_name = 'rcard.'+card_tag
-
-  # --- run verification tool
-  if not do_plot_only:
-     cmd = '../exec/tcver.x {}{} {}'.format(work_dir, card_name, atcf_dir)
-     os.system(cmd)
-
-     # process radius verification output
-     if type == 'radii':
-        cmd = '/work/Kun.Gao/trak_ver/scripts/radiicut.sh {}{}.out > {}{}.out2'.format(work_dir, card_name, work_dir, card_name)
-        os.system(cmd)
-
-  # --- make plots
-  if type == 'intensity':
-    tc_dict = read_intensity_stat(work_dir+card_name+'.out')
-    #for key, value in tc_dict.items():
-    #    print(key, ' : ', value)
-    plot_stat(tc_dict, 'intensity_error', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0, sig_test_model_list)
-    plot_stat(tc_dict, 'intensity_bias', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
-  elif type == 'track':
-    tc_dict = read_track_stat(work_dir+card_name+'.out')
-    plot_stat(tc_dict, 'track_error', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0, sig_test_model_list)
-    plot_stat(tc_dict, 'track_xbias', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
-    plot_stat(tc_dict, 'track_ybias', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
-  elif type == 'radii':
-    tc_dict = read_radii_stat(work_dir+card_name+'.out2')
-    plot_stat(tc_dict, 'R34',       card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
-    plot_stat(tc_dict, 'R34_error', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
-    plot_stat(tc_dict, 'R34_bias',  card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
-    plot_stat(tc_dict, 'R64',       card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
-    plot_stat(tc_dict, 'R64_error', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
-    plot_stat(tc_dict, 'R64_bias',  card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
-
-# ---
-
-# The following tool is to gain insight on the error distribution, model differeces based on
-# the intermediate results in 'xtr.dat' file
+#===========================================================================
+# Part 1: A very powerful CLASS: stratify_TC_error
+#
+# To gain insight on the error distribution, model differeces, etc based on 
+# csv-type files that contain track, intensity or size error records
+#===========================================================================
 
 class stratify_TC_error():
 
   def __init__(self):
      self.col_list = ['b','g','r','m','orange','c','y']
 
-  # generate a pd dataframe containing columns defined in name_list
+  # ===== generate a pd dataframe containing columns defined in name_list
+
   def preprocess(self,filename,model_name_map):
 
      # ABOUT COL 7 to 14
@@ -101,9 +67,296 @@ class stratify_TC_error():
      self.df_allcase_error = self.df_xtr.groupby(['modelID','leadTime'])['Abs_Error'].mean()
      self.df_allcase_bias  = self.df_xtr.groupby(['modelID','leadTime'])['Error'].mean()
 
-  # show where the storms are located and their intensity distributions
-  # assuming homogeneous model comparison
-  # still work in progress
+
+  # ===== generate a pd dataframe containing columns defined in name_list for wind radii
+
+  def preprocess_wind_radii(self,filename,model_name_map,target='R34'):
+
+     # --- define a dict that map 4-digit modelID to a more readable name
+     self.model_name_map = model_name_map
+
+     # --- read in data as a pd dataframe
+
+     if target == "R34":
+       col_list =  [0,          1,         2,          3,          5,      6,      7,      8]
+     if target == "R50":
+       col_list =  [0,          1,         2,          3,          9,      10,     11,     12]
+     if target == "R64":
+       col_list =  [0,          1,         2,          3,         13,      14,     15,     16]
+
+     name_list = ['modelID', 'leadTime','stormName', 'stormID',  'err1', 'err2', 'err3', 'err4']
+
+     self.df_xtr = pd.read_csv(filename, header=0, usecols=col_list, names=name_list)
+
+     cols = ['err1', 'err2', 'err3', 'err4']
+
+     self.df_xtr[cols] = self.df_xtr[cols].apply(pd.to_numeric,errors='coerce')
+     #print(self.df_xtr[['err1', 'err2', 'err3', 'err4']].dtypes)
+
+     self.df_xtr["Error"] = self.df_xtr[['err1', 'err2', 'err3', 'err4']].mean(axis=1) # NaN excluded by default
+     self.df_xtr = self.df_xtr.dropna(subset=['Error']) # drop rows where Error is NaN
+
+     self.df_xtr['Abs_Error'] =  self.df_xtr['Error'] # just to make extra copy
+
+     print(self.df_xtr)
+
+     # --- generate a list contains all model 4-digit IDs
+     self.modelID_list = self.df_xtr['modelID'].unique()
+
+     # --- generate a storm name map 
+     df_xtr = self.df_xtr[self.df_xtr['leadTime'] == 00]
+     df_xtr['stormName'] = df_xtr['stormName']+'-'+df_xtr['stormID'].str[-4:]
+     df_map = df_xtr[['stormID','stormName']].drop_duplicates().groupby('stormID').tail(1)
+     self.storm_name_dict = dict(zip(df_map['stormID'], df_map['stormName']))
+
+     # --- get all case mean error/bias at all leadtime (00h, 12h, 24h, ...)
+     self.df_allcase_error = self.df_xtr.groupby(['modelID','leadTime'])['Abs_Error'].mean()
+     self.df_allcase_bias  = self.df_xtr.groupby(['modelID','leadTime'])['Error'].mean() # there is useless 
+
+  # ===== The following functions are to 
+  #       obtain aggregated errors based on model and storm IDs at given lead time hh
+
+  @staticmethod
+  def get_percent_contribution(Mean_list, N_list):
+     N_all = sum(N_list)
+     Mean_all = np.sum(np.array(Mean_list)*np.array(N_list))/float(N_all)
+     Percent = 100*(np.array(Mean_list)*np.array(N_list))/float(N_all*Mean_all)
+     return Percent.tolist()
+
+  @staticmethod
+  def sort_lists(listA, listB, listC, list_ref):
+     listA_sorted = [x for _,x in sorted(zip(list_ref, listA), reverse=True)]
+     listB_sorted = [x for _,x in sorted(zip(list_ref, listB), reverse=True)]
+     listC_sorted = [x for _,x in sorted(zip(list_ref, listC), reverse=True)]
+     list_ref_sorted = sorted(list_ref, reverse=True)
+     return listA_sorted, listB_sorted, listC_sorted, list_ref_sorted
+
+  def perform_error_aggregation(self, hh):
+     self.bias_dict = {}
+     self.error_dict = {}
+     self.count_dict = {}
+     self.hh = hh
+
+     df_xtr = self.df_xtr[self.df_xtr['leadTime'] == hh]
+
+     df_bias = df_xtr.groupby(['modelID','stormID'])['Error'].mean()
+     df_error = df_xtr.groupby(['modelID','stormID'])['Abs_Error'].mean()
+     df_count = df_xtr.groupby(['modelID','stormID'])['Error'].count()
+
+     #df_comb = pd.concat([df_mean, df_count], axis=1)
+     #print df_bias.head()
+     #print df_error.head()
+     #print df_count.head()
+
+     for modelID in self.modelID_list:
+        self.bias_dict[modelID]  = df_bias[modelID].to_dict()
+        self.error_dict[modelID] = df_error[modelID].to_dict()
+        self.count_dict[modelID] = df_count[modelID].to_dict()
+      
+  # ===== plot storm-by-storm error in one model 
+
+  def plot_by_storm_oneModel(self, type, modelID, do_sort=True):
+
+     stormID_list = []
+     value_list = []
+     count_list = []
+
+     if type == 'intensity_bias':
+         oneModelDict = self.bias_dict[modelID]
+     elif 'error' in type:
+         oneModelDict = self.error_dict[modelID]
+     else:
+         print ('wrong type!!!')
+     for stormID, value in oneModelDict.iteritems():
+         value_list.append(value)
+         stormID_list.append(stormID)
+         count_list.append(self.count_dict[modelID][stormID])
+
+     percent_list = self.get_percent_contribution(value_list, count_list)
+
+     if do_sort:
+       stormID_list, value_list, count_list, percent_list = self.sort_lists(stormID_list, value_list, count_list, percent_list)  
+
+     # override xlabels - sort by storm ID below !!! change !!!
+     stormID_list, value_list, count_list, percent_list = self.sort_lists(stormID_list, value_list, count_list, stormID_list)
+
+     fig = plt.figure(figsize=(12,6))
+     ax = plt.subplot(111)
+     ft = 16
+     ft1 = 16 
+     ft2 = 41
+
+     x = np.arange(len(value_list)) 
+     width = 0.25 
+
+     if 'bias' in type: 
+       allcase_mean = self.df_allcase_bias[modelID,self.hh]
+     elif 'error' in type:
+       allcase_mean = self.df_allcase_error[modelID,self.hh]
+
+     label = self.model_name_map[modelID] + ' (Mean = ' +  '%.1f' % allcase_mean + ')'
+
+     ax.bar(x, value_list, width, color=self.col_list[0], label=label)
+
+     low, high = plt.ylim()
+     bound = max(abs(low), abs(high))
+     if 'bias' in type:
+        ax.axhline(y=0, c='k', lw=1)
+        plt.ylim(-bound, bound)
+     else:
+        plt.ylim(0, bound*1.1)
+        plt.ylim(0, 600)  #!!! change !!!
+
+        if do_sort:
+         for x1, p1 in zip(x, percent_list):
+            plt.text(x1, bound, '%.1f' % p1 + '%', ha='center', va='bottom', fontsize=ft2)
+
+     if 'bias' in type:
+        plt.legend(loc='upper right', ncol=1,  fontsize=ft1)
+     elif 'error' in type:
+        plt.legend(loc='upper right', ncol=1,  fontsize=ft1)
+
+     xticks = range(len(stormID_list))
+     xticklabels=[]
+     for stormID in stormID_list:
+         count = self.count_dict[modelID][stormID] # using last modelID; homogenous sample
+         xtick = self.storm_name_dict[stormID] + ' (' + str(count) + ')'
+         xticklabels.append(xtick)
+
+     ax.set_xticks(xticks)
+     ax.set_xticklabels(xticklabels, rotation=270)
+
+     for tick in ax.xaxis.get_major_ticks():
+         tick.label1.set_fontsize(ft1)
+     for tick in ax.yaxis.get_major_ticks():
+         tick.label1.set_fontsize(ft1)
+    
+     if type == 'intensity_error':
+         unit = 'kts'
+         title_a = 'Intensity Error'
+     elif type == 'intensity_bias':
+         unit = 'kts'
+         title_a = 'Intensity Bias' 
+     elif type == 'track_error':
+         unit = 'nm'
+         title_a = 'Track Error'
+     elif type == 'size_error':
+         unit = 'nm'
+         title_a = 'Size Error'
+ 
+     ax.set_title(title_a + ' at '  + str(self.hh) + ' hr', fontsize=ft1) 
+     ax.set_ylabel(unit, fontsize=ft1)
+
+     filename = 'oneModel_'+modelID+'_'+type+'_'+str(self.hh)+'hr_by_storm'
+     fig.savefig(filename+'.png',bbox_inches='tight')
+     #plt.show()
+                                         
+  # ===== plot storm-by-storm errors in two models
+                                  
+  def plot_by_storm_twoModels(self, type, modelID1, modelID2, show_percent=True):
+
+     stormID_list = []
+     count_list = []
+
+     value_list1 = []
+     value_list2 = []
+
+     if type == 'intensity_bias':
+         oneModelDict1 = self.bias_dict[modelID1]
+         oneModelDict2 = self.bias_dict[modelID2]
+     elif 'error' in  type:
+         oneModelDict1 = self.error_dict[modelID1]
+         oneModelDict2 = self.error_dict[modelID2]
+     else:
+         print ('wrong type!!!')
+     for stormID, value1 in oneModelDict1.items():
+         stormID_list.append(stormID)
+         count_list.append(self.count_dict[modelID1][stormID])
+         value_list1.append(value1)
+         value_list2.append(oneModelDict2[stormID])
+
+     diff_list = (np.array(value_list2) - np.array(value_list1)).tolist()
+     percent_list = self.get_percent_contribution(diff_list, count_list)
+     stormID_list, value_list1, value_list2, percent_list = self.sort_lists(stormID_list, value_list1, value_list2, percent_list)
+
+     fig = plt.figure(figsize=(24,6))
+     ax=plt.subplot(111)
+     ft = 16
+     ft1 = 12
+     ft2 = 10
+
+     x = np.arange(len(value_list1))
+     width = 0.35
+
+     if 'bias' in type:
+       allcase_mean1 = self.df_allcase_bias[modelID1,self.hh]
+       allcase_mean2 = self.df_allcase_bias[modelID2,self.hh]
+     elif 'error' in type:
+       allcase_mean1 = self.df_allcase_error[modelID1,self.hh]
+       allcase_mean2 = self.df_allcase_error[modelID2,self.hh]
+
+     label1 = self.model_name_map[modelID1] + ' (Mean = ' +  '%.1f' % allcase_mean1 + ')'
+     label2 = self.model_name_map[modelID2] + ' (Mean = ' +  '%.1f' % allcase_mean2 + ')'
+
+     ax.bar(x-width/2, value_list1, width, color=self.col_list[0], label=label1)
+     ax.bar(x+width/2, value_list2, width, color=self.col_list[1], label=label2)
+
+     low, high = plt.ylim()
+     bound = max(abs(low), abs(high))
+     if 'bias' in type:
+        ax.axhline(y=0, c='k', lw=1)
+        plt.ylim(-bound, bound)
+     else:
+        plt.ylim(0, bound*1.1)
+        if show_percent:
+          for x1, p1 in zip(x, percent_list):
+            plt.text(x1, bound, '%.1f' % p1 + '%', ha='center', va='bottom', fontsize=ft2)
+
+     if 'bias' in type:
+        plt.legend(loc='upper right', ncol=1,  fontsize=ft1)
+     elif 'error' in type:
+        plt.legend(loc='center right', ncol=1,  fontsize=ft1)
+
+     xticks = range(len(stormID_list))
+     xticklabels=[]
+     for stormID in stormID_list:
+         count = self.count_dict[modelID1][stormID]
+         xtick = self.storm_name_dict[stormID] + ' (' + str(count) + ')'
+         xticklabels.append(xtick)
+
+     ax.set_xticks(xticks)
+     ax.set_xticklabels(xticklabels, rotation=270)
+
+     for tick in ax.xaxis.get_major_ticks():
+         tick.label1.set_fontsize(ft1)
+     for tick in ax.yaxis.get_major_ticks():
+         tick.label1.set_fontsize(ft1)
+
+     if type == 'intensity_error':
+         unit = 'kts'
+         title_a = 'Intensity Error'
+     elif type == 'intensity_bias':
+         unit = 'kts'
+         title_a = 'Intensity Bias'    
+     elif type == 'track_error':
+         unit = 'nm'
+         title_a = 'Track Error'
+     elif type == 'size_error':
+         unit = 'nm'
+         title_a = 'Size Error'
+
+     ax.set_title(title_a + ' at '  + str(self.hh) + ' hr', fontsize=ft1)                   
+     ax.set_ylabel(unit, fontsize=ft1)
+
+     filename = 'twoModel_'+modelID1+'_vs_'+modelID2+'_'+type+'_'+str(self.hh)+'hr_by_storm'
+     fig.savefig(filename+'.png',bbox_inches='tight')
+     #plt.show()
+
+
+  # ===== show where the storms are located and their intensity distributions
+  #       assuming homogeneous model comparison
+  #       still work in progress
+
   def show_records_dist(self, option='track', vmax_cutoff=64, hh_sel=None):
       model_sel = self.modelID_list[0]
 
@@ -149,7 +402,8 @@ class stratify_TC_error():
         plt.legend()
         plt.show()
 
-  # compare the error distributions in two models at lead times given in hh_list
+  # ===== compare the error distributions in two models at lead times given in hh_list
+
   def compare_error_twoModels(self, modelA, modelB, hh_list, opt=0):
 
     # ideally, modelA should be better than modelB
@@ -242,286 +496,51 @@ class stratify_TC_error():
 
          plt.show()
 
+# <=================== end of the class
 
-  # The following functions are read_radii_statto 
-  # obtain aggregated errors based on model and storm IDs at given lead time hh
+#=====================================================================
+#  Part 2: a collection of functions to run Tim's TC verification tool 
+#=====================================================================
 
-  @staticmethod
-  def get_percent_contribution(Mean_list, N_list):
-     N_all = sum(N_list)
-     Mean_all = np.sum(np.array(Mean_list)*np.array(N_list))/float(N_all)
-     Percent = 100*(np.array(Mean_list)*np.array(N_list))/float(N_all*Mean_all)
-     return Percent.tolist()
+def run_verify(work_dir, card_tag, type, model_name_map, do_plot_only = False, model_sel=[], color_sel=[], atcf_dir = '../all/', do_hour0=False, sig_test_model_list=[]):
 
-  @staticmethod
-  def sort_lists(listA, listB, listC, list_ref):
-     listA_sorted = [x for _,x in sorted(zip(list_ref, listA), reverse=True)]
-     listB_sorted = [x for _,x in sorted(zip(list_ref, listB), reverse=True)]
-     listC_sorted = [x for _,x in sorted(zip(list_ref, listC), reverse=True)]
-     list_ref_sorted = sorted(list_ref, reverse=True)
-     return listA_sorted, listB_sorted, listC_sorted, list_ref_sorted
+  if type == 'intensity':
+    card_name = 'icard.'+card_tag
+  elif type == 'track':
+    card_name = 'tcard.'+card_tag
+  elif type == 'radii':
+    card_name = 'rcard.'+card_tag
 
-  def perform_error_aggregation(self, hh):
-     self.bias_dict = {}
-     self.error_dict = {}
-     self.count_dict = {}
-     self.hh = hh
+  # --- run verification tool
+  if not do_plot_only:
+     cmd = '../exec/tcver.x {}{} {}'.format(work_dir, card_name, atcf_dir)
+     os.system(cmd)
 
-     df_xtr = self.df_xtr[self.df_xtr['leadTime'] == hh]
+     # process radius verification output
+     if type == 'radii':
+        cmd = '/work/Kun.Gao/trak_ver/scripts/radiicut.sh {}{}.out > {}{}.out2'.format(work_dir, card_name, work_dir, card_name)
+        os.system(cmd)
 
-     df_bias = df_xtr.groupby(['modelID','stormID'])['Error'].mean()
-     df_error = df_xtr.groupby(['modelID','stormID'])['Abs_Error'].mean()
-     df_count = df_xtr.groupby(['modelID','stormID'])['Error'].count()
-
-     #df_comb = pd.concat([df_mean, df_count], axis=1)
-     #print df_bias.head()
-     #print df_error.head()
-     #print df_count.head()
-
-     for modelID in self.modelID_list:
-        self.bias_dict[modelID]  = df_bias[modelID].to_dict()
-        self.error_dict[modelID] = df_error[modelID].to_dict()
-        self.count_dict[modelID] = df_count[modelID].to_dict()
-      
-  # plot storm-by-storm error in one model 
-  def plot_by_storm_oneModel(self, type, modelID, do_sort=True):
-
-     stormID_list = []
-     value_list = []
-     count_list = []
-
-     if type == 'intensity_bias':
-         oneModelDict = self.bias_dict[modelID]
-     elif 'error' in type:
-         oneModelDict = self.error_dict[modelID]
-     else:
-         print ('wrong type!!!')
-     for stormID, value in oneModelDict.iteritems():
-         value_list.append(value)
-         stormID_list.append(stormID)
-         count_list.append(self.count_dict[modelID][stormID])
-
-     percent_list = self.get_percent_contribution(value_list, count_list)
-
-     if do_sort:
-       stormID_list, value_list, count_list, percent_list = self.sort_lists(stormID_list, value_list, count_list, percent_list)  
-
-     # override xlabels - sort by storm ID below !!! change !!!
-     stormID_list, value_list, count_list, percent_list = self.sort_lists(stormID_list, value_list, count_list, stormID_list)
-
-     fig = plt.figure(figsize=(12,6))
-     ax = plt.subplot(111)
-     ft = 16
-     ft1 = 16 
-     ft2 = 41
-
-     x = np.arange(len(value_list)) 
-     width = 0.25 
-
-     if 'bias' in type: 
-       allcase_mean = self.df_allcase_bias[modelID,self.hh]
-     elif 'error' in type:
-       allcase_mean = self.df_allcase_error[modelID,self.hh]
-
-     label = self.model_name_map[modelID] + ' (Mean = ' +  '%.1f' % allcase_mean + ')'
-
-     ax.bar(x, value_list, width, color=self.col_list[0], label=label)
-
-     low, high = plt.ylim()
-     bound = max(abs(low), abs(high))
-     if 'bias' in type:
-        ax.axhline(y=0, c='k', lw=1)
-        plt.ylim(-bound, bound)
-     else:
-        plt.ylim(0, bound*1.1)
-        plt.ylim(0, 600)  #!!! change !!!
-
-        if do_sort:
-         for x1, p1 in zip(x, percent_list):
-            plt.text(x1, bound, '%.1f' % p1 + '%', ha='center', va='bottom', fontsize=ft2)
-
-     if 'bias' in type:
-        plt.legend(loc='upper right', ncol=1,  fontsize=ft1)
-     elif 'error' in type:
-        plt.legend(loc='upper right', ncol=1,  fontsize=ft1)
-
-     xticks = range(len(stormID_list))
-     xticklabels=[]
-     for stormID in stormID_list:
-         count = self.count_dict[modelID][stormID] # using last modelID; homogenous sample
-         xtick = self.storm_name_dict[stormID] + ' (' + str(count) + ')'
-         xticklabels.append(xtick)
-
-     ax.set_xticks(xticks)
-     ax.set_xticklabels(xticklabels, rotation=270)
-
-     for tick in ax.xaxis.get_major_ticks():
-         tick.label1.set_fontsize(ft1)
-     for tick in ax.yaxis.get_major_ticks():
-         tick.label1.set_fontsize(ft1)
-    
-     if type == 'intensity_error':
-         unit = 'kts'
-         title_a = 'Intensity Error'
-     elif type == 'intensity_bias':
-         unit = 'kts'
-         title_a = 'Intensity Bias' 
-     elif type == 'track_error':
-         unit = 'nm'
-         title_a = 'Track Error'
- 
-     ax.set_title(title_a + ' at '  + str(self.hh) + ' hr', fontsize=ft1) 
-     ax.set_ylabel(unit, fontsize=ft1)
-
-     filename = 'oneModel_'+modelID+'_'+type+'_'+str(self.hh)+'hr_by_storm'
-     fig.savefig(filename+'.png',bbox_inches='tight')
-     #plt.show()
-                                         
-  # plot storm-by-storm errors in two models                                  
-  def plot_by_storm_twoModels(self, type, modelID1, modelID2, show_percent=True):
-
-     stormID_list = []
-     count_list = []
-
-     value_list1 = []
-     value_list2 = []
-
-     if type == 'intensity_bias':
-         oneModelDict1 = self.bias_dict[modelID1]
-         oneModelDict2 = self.bias_dict[modelID2]
-     elif 'error' in  type:
-         oneModelDict1 = self.error_dict[modelID1]
-         oneModelDict2 = self.error_dict[modelID2]
-     else:
-         print ('wrong type!!!')
-     for stormID, value1 in oneModelDict1.iteritems():
-         stormID_list.append(stormID)
-         count_list.append(self.count_dict[modelID1][stormID])
-         value_list1.append(value1)
-         value_list2.append(oneModelDict2[stormID])
-
-     diff_list = (np.array(value_list2) - np.array(value_list1)).tolist()
-     percent_list = self.get_percent_contribution(diff_list, count_list)
-     stormID_list, value_list1, value_list2, percent_list = self.sort_lists(stormID_list, value_list1, value_list2, percent_list)
-
-     fig = plt.figure(figsize=(24,6))
-     ax=plt.subplot(111)
-     ft = 16
-     ft1 = 12
-     ft2 = 10
-
-     x = np.arange(len(value_list1))
-     width = 0.35
-
-     if 'bias' in type:
-       allcase_mean1 = self.df_allcase_bias[modelID1,self.hh]
-       allcase_mean2 = self.df_allcase_bias[modelID2,self.hh]
-     elif 'error' in type:
-       allcase_mean1 = self.df_allcase_error[modelID1,self.hh]
-       allcase_mean2 = self.df_allcase_error[modelID2,self.hh]
-
-     label1 = self.model_name_map[modelID1] + ' (Mean = ' +  '%.1f' % allcase_mean1 + ')'
-     label2 = self.model_name_map[modelID2] + ' (Mean = ' +  '%.1f' % allcase_mean2 + ')'
-
-     ax.bar(x-width/2, value_list1, width, color=self.col_list[0], label=label1)
-     ax.bar(x+width/2, value_list2, width, color=self.col_list[1], label=label2)
-
-     low, high = plt.ylim()
-     bound = max(abs(low), abs(high))
-     if 'bias' in type:
-        ax.axhline(y=0, c='k', lw=1)
-        plt.ylim(-bound, bound)
-     else:
-        plt.ylim(0, bound*1.1)
-        if show_percent:
-          for x1, p1 in zip(x, percent_list):
-            plt.text(x1, bound, '%.1f' % p1 + '%', ha='center', va='bottom', fontsize=ft2)
-
-     if 'bias' in type:
-        plt.legend(loc='upper right', ncol=1,  fontsize=ft1)
-     elif 'error' in type:
-        plt.legend(loc='center right', ncol=1,  fontsize=ft1)
-
-     xticks = range(len(stormID_list))
-     xticklabels=[]
-     for stormID in stormID_list:
-         count = self.count_dict[modelID1][stormID]
-         xtick = self.storm_name_dict[stormID] + ' (' + str(count) + ')'
-         xticklabels.append(xtick)
-
-     ax.set_xticks(xticks)
-     ax.set_xticklabels(xticklabels, rotation=270)
-
-     for tick in ax.xaxis.get_major_ticks():
-         tick.label1.set_fontsize(ft1)
-     for tick in ax.yaxis.get_major_ticks():
-         tick.label1.set_fontsize(ft1)
-
-     if type == 'intensity_error':
-         unit = 'kts'
-         title_a = 'Intensity Error'
-     elif type == 'intensity_bias':
-         unit = 'kts'
-         title_a = 'Intensity Bias'    
-     elif type == 'track_error':
-         unit = 'nm'
-         title_a = 'Track Error'
-
-     ax.set_title(title_a + ' at '  + str(self.hh) + ' hr', fontsize=ft1)                   
-     ax.set_ylabel(unit, fontsize=ft1)
-
-     filename = 'twoModel_'+modelID1+'_vs_'+modelID2+'_'+type+'_'+str(self.hh)+'hr_by_storm'
-     fig.savefig(filename+'.png',bbox_inches='tight')
-     #plt.show()
-
-  def plot_by_storm(self, type, selected_model_list):
-     stormID_list = []
-
-     fig = plt.figure(figsize=(14,6))
-     ax=plt.subplot(111)
-     ft = 16 
-     ft1 = 12
- 
-     for i in range(len(selected_model_list)):
-         modelID = selected_model_list[i]
-         if type == 'intensity_bias':
-            oneModelDict = self.bias_dict[modelID] 
-         elif 'error' in type:
-            oneModelDict = self.error_dict[modelID]
-         else:
-            print ('wrong type!!!')
-         value_list = []
-         for stormID, value in oneModelDict.iteritems():
-             value_list.append(value)
-             if i == 0:
-                stormID_list.append(stormID)
-         plt.scatter(range(len(value_list)), value_list, color=self.col_list[i], marker='o', s=40, edgecolors='w', label=modelID) 
-
-     if 'bias' in type:
-        ax.axhline(y=0, c='k', lw=1)
-        low, high = plt.ylim()
-        bound = max(abs(low), abs(high))
-        plt.ylim(-bound, bound)
-
-     plt.legend(loc='center right', ncol = 1,  fontsize=ft1)
-
-     xticks = range(len(stormID_list)) 
-     xticklabels=[]
-     for stormID in stormID_list:
-         count = self.count_dict[modelID][stormID] # using last modelID; homogenous sample
-         xtick = self.storm_name_dict[stormID] + ' (' + str(count) + ')'
-         xticklabels.append(xtick)
-
-     ax.set_xticks(xticks)
-     ax.set_xticklabels(xticklabels, rotation=270)
-
-     for tick in ax.xaxis.get_major_ticks():
-         tick.label1.set_fontsize(ft1)
-     for tick in ax.yaxis.get_major_ticks():
-         tick.label1.set_fontsize(ft1)
-     fig.savefig('test.png',bbox_inches='tight')
-
-# ---
+  # --- make plots
+  if type == 'intensity':
+    tc_dict = read_intensity_stat(work_dir+card_name+'.out')
+    #for key, value in tc_dict.items():
+    #    print(key, ' : ', value)
+    plot_stat(tc_dict, 'intensity_error', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0, sig_test_model_list)
+    plot_stat(tc_dict, 'intensity_bias', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
+  elif type == 'track':
+    tc_dict = read_track_stat(work_dir+card_name+'.out')
+    plot_stat(tc_dict, 'track_error', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0, sig_test_model_list)
+    plot_stat(tc_dict, 'track_xbias', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
+    plot_stat(tc_dict, 'track_ybias', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
+  elif type == 'radii':
+    tc_dict = read_radii_stat(work_dir+card_name+'.out2')
+    plot_stat(tc_dict, 'R34',       card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
+    plot_stat(tc_dict, 'R34_error', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
+    plot_stat(tc_dict, 'R34_bias',  card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
+    plot_stat(tc_dict, 'R64',       card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
+    plot_stat(tc_dict, 'R64_error', card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
+    plot_stat(tc_dict, 'R64_bias',  card_name, work_dir, model_name_map, model_sel, color_sel, do_hour0)
 
 def read_intensity_stat(filename):
 
@@ -699,7 +718,6 @@ def read_radii_stat(filename):
 
   return tc_dict
 
-# ---
 
 def plot_stat(tc_dict, keyword, card_name, pic_dir, model_name_map, model_sel, color_sel, do_hour0=False, sig_test_model_list=[]):
 
@@ -837,93 +855,145 @@ def plot_stat(tc_dict, keyword, card_name, pic_dir, model_name_map, model_sel, c
     plt.ylabel(yname, fontsize=ft)
 
     model_name_string='.'.join(models);
-    #fig.savefig('/work/Kun.Gao/trak_ver/run_2022/track_5model.png')
     fig.savefig(pic_dir+model_name_string+'_'+keyword+'.png', bbox_inches = 'tight')
     #plt.show()
 
-# --- 
+def extract_radii_error(filename, target_models):
 
-def flatten_list(listOflist):
-  flat_list = []
-  for sublist in listOflist:
-    for item in sublist:
-        flat_list.append(item)
-  return flat_list
+    FIELDS = [
+      "ne34", "se34", "sw34", "nw34",
+      "ne50", "se50", "sw50", "nw50",
+      "ne64", "se64", "sw64", "nw64"
+    ]
 
-# ---
+    MISSING_FLAGS = [6666, 7777, 9999]
 
-def sel_var(var_all, vmax_all, wind_th1, wind_th2):
-    var_sel = []
-    for i in range(len(vmax_all)):
-        if vmax_all[i]  >= wind_th1 and vmax_all[i]  <= wind_th2:
-           var_sel.append(var_all[i])
-    return np.array(var_sel)
+    #target_models = [m.strip().upper() for m in models.split('.')]
 
-# --- function to average wind radii
+    records = []
 
-def detect_wind_radii(wind_list, target):
-   
-    rad = [10,25,50,75,100,125,150,200,250,300,350,400,450,500]
-    idx_max = wind_list.index(max(wind_list))
+    # --------------------------------------------------------
+    # Regex pattern
+    # --------------------------------------------------------
+    pattern = re.compile(
+        r"^\s*(\w+)\s+(\d{3})\s+"
+        r"(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+"
+        r"(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+"
+        r"(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)"
+    )
 
-    # we assume RMW >=300 is a bad case 
-    if wind_list[-1] > target or max(wind_list) < target or rad[idx_max] > 300:
-       result = np.nan 
-    else:
-       for i in range(idx_max, len(rad)-1):
-           if wind_list[i] == target:
-              result = rad[i]
-           elif wind_list[i] > target and wind_list[i+1] <= target:
-              slope = (wind_list[i+1] - wind_list[i])/float((rad[i+1] - rad[i])) 
-              result = rad[i] + 1./slope * (target - wind_list[i]) 
-    return result 
+    # --------------------------------------------------------
+    # Read file
+    # --------------------------------------------------------
+    with open(filename, "r") as f:
+        lines = f.readlines()
 
-def detect_wind_radii_from_dict(tc_dict, target):
-      wind1 = tc_dict['wind_NWE']
-      wind2 = tc_dict['wind_SEE']
-      wind3 = tc_dict['wind_SWE']
-      wind4 = tc_dict['wind_NWE']
-      rad1 = []
-      rad2 = []
-      rad3 = []
-      rad4 = []
-      for i in range(len(wind1)):
-          rad1.append(detect_wind_radii(wind1[i], target))
-          rad2.append(detect_wind_radii(wind2[i], target))
-          rad3.append(detect_wind_radii(wind3[i], target))
-          rad4.append(detect_wind_radii(wind4[i], target))
-      return rad1, rad2, rad3, rad4
+    storm_info = None
 
-def mean_wind_radii(rad1, rad2, rad3, rad4):
-    r1 = np.array(rad1)
-    r2 = np.array(rad2)
-    r3 = np.array(rad3)
-    r4 = np.array(rad4)
+    # --------------------------------------------------------
+    # Parse file
+    # --------------------------------------------------------
+    for line in lines:
 
-    rad_new = np.stack((r1,r2,r3,r4))
+        # ----------------------------------------------------
+        # Storm header
+        # ----------------------------------------------------
+        header_match = re.match(
+            r"^\s*(\w+)\s+([A-Z]+)\s+(\d{10})",
+            line
+        )
 
-    rad_new[rad_new<1] = np.nan
-    rad_new[rad_new>900] = np.nan
-   
-    return np.nanmean(rad_new, axis=0)
+        if header_match:
+            storm_info = {
+                "storm_id": header_match.group(1).strip(),
+                "storm_name": header_match.group(2).strip(),
+                "cycle": header_match.group(3).strip(),
+            }
+            continue
 
-# --- function to get wind radii
+        # ----------------------------------------------------
+        # Data lines
+        # ----------------------------------------------------
+        m = pattern.match(line)
 
-def get_wind_radius(vel_azi, dr, wind_th):
-    nt, nr = np.shape(vel_azi)
-    radius = np.arange(nr)*dr
-    rad = np.zeros(nt)
-    for t in np.arange(nt):
-      vel1 = vel_azi[t,:]
-      if np.max(vel1) < wind_th:
-          rad[t] = np.nan
-      else:
-        rind1 = find_nearest(vel1,np.max(vel1))
-        rind = find_nearest(vel1[rind1:],wind_th)
-        rad[t] = radius[rind1+rind]
-    return rad
+        if not m:
+            continue
 
-# --- function to selected atcf records
+        model = m.group(1).strip()
+        lead = int(m.group(2))
+
+        # Requested models only
+        if model not in target_models:
+            continue
+
+        # Skip invalid records
+        if storm_info is None:
+            continue
+
+        if not storm_info["storm_name"]:
+            continue
+
+        if not model:
+            continue
+
+        # ----------------------------------------------------
+        # Extract radii values
+        # ----------------------------------------------------
+        values = list(map(int, m.groups()[2:]))
+
+        clean_values = [
+            pd.NA if v in MISSING_FLAGS else v
+            for v in values
+        ]
+
+        # ----------------------------------------------------
+        # Build record
+        # ----------------------------------------------------
+        record = {
+            "model": model,
+            "lead": lead,
+            "storm_name": storm_info["storm_name"],
+            "storm_id": storm_info["storm_id"],
+            "cycle": storm_info["cycle"],
+        }
+
+        for field, value in zip(FIELDS, clean_values):
+            record[field] = value
+
+        records.append(record)
+
+    # --------------------------------------------------------
+    # Create DataFrame
+    # --------------------------------------------------------
+    df = pd.DataFrame(records)
+
+    # --------------------------------------------------------
+    # Reorder columns
+    # --------------------------------------------------------
+    ordered_cols = [
+        "model",
+        "lead",
+        "storm_name",
+        "storm_id",
+        "cycle",
+    ] + FIELDS
+
+    df = df[ordered_cols]
+
+    # --------------------------------------------------------
+    # Sort data
+    # --------------------------------------------------------
+    df = df.sort_values(
+        by=["lead", "model", "storm_name"]
+    ).reset_index(drop=True)
+
+    return df
+
+# <=================== end of the collection of functions for running Tim's verification tool
+
+# ===========================================
+# Part 3: ATCF related functions
+# ===========================================
 
 def select_atcf_records(tc_dict, min_lti, max_ini_wind, max_lat) :
 
@@ -991,7 +1061,6 @@ def select_atcf_records(tc_dict, min_lti, max_ini_wind, max_lat) :
 
     return tc_dict_g1, tc_dict_g2
 
-# --- functions to read atcf
 
 def read_atcf_merged(filename, model_list, ini_date):
 
@@ -1455,263 +1524,7 @@ def plot_track_atcf(ax, ccrs, file_name, color, add_date=False):
         ax.text(xi,yi+yoffset,datei[2:10],color=color,ha='right',fontsize=8,transform=ccrs)
         #ax.text(xi,yi,'o',fontsize=12,color=color,ha='center',va='center')
 
-########################################################################
-# funciton to read matching obs and mod tc records from 
-# files like 2017.NAtl.11.txt 
-########################################################################
+# <======================= end of ATCF related functions
 
-def read_match(filename):
 
-  all_pred={}
 
-  if os.path.exists(filename):
- 
-    print("Reading", filename)
-
-    # --- initialize var
-    title = ''
-    obs_date = []
-    obs_lon = []
-    obs_lat = []
-    obs_wind = []
-    obs_pres = []
-
-    mod_date = []
-    mod_lon = []
-    mod_lat = []
-    mod_wind = []
-    mod_pres = []
-
-    # --- start reading
- 
-    fo = open (filename, "r")
-    lines = fo.readlines()
-
-    for line in lines:
-
-     if "+++" in line:
-       L = line.split()
-       title = str(L[1])
-       if "forecast" in line:
-          ini_time = str(L[2])
- 
-       # --- wrap one forecast 
-       if title == "overlap_BT_for" and len(obs_lon)>0 and len(mod_lon)>0:
-
-          tc_stack = np.zeros((10,len(obs_lon))) 
-          tc_stack[0,:] = np.array(obs_date)
-          tc_stack[1,:] = np.array(obs_lon)
-          tc_stack[2,:] = np.array(obs_lat)
-          tc_stack[3,:] = np.array(obs_wind)
-          tc_stack[4,:] = np.array(obs_pres)
-          tc_stack[5,:] = np.array(mod_date)
-          tc_stack[6,:] = np.array(mod_lon)
-          tc_stack[7,:] = np.array(mod_lat)
-          tc_stack[8,:] = np.array(mod_wind)
-          tc_stack[9,:] = np.array(mod_pres)
-          all_pred[ini_time] = tc_stack
-          
-          # now let's start a new cycle
-          obs_date = []
-          obs_lon = []
-          obs_lat = []
-          obs_wind = []
-          obs_pres = []
-
-          mod_date = []
-          mod_lon = []
-          mod_lat = []
-          mod_wind = []
-          mod_pres = []
- 
-     else:
-      if title == "overlap_BT_for":
-         L = line.split()
-         obs_date += [float(L[0])/100.] 
-         obs_lon  += [float(L[1])]
-         obs_lat  += [float(L[2])]
-         obs_pres += [float(L[3])]
-         obs_wind += [float(L[4])]
-
-      if title == "forecast":
-         L = line.split()
-         mod_date += [float(L[0])/100.] 
-         mod_lon += [float(L[1])]
-         mod_lat += [float(L[2])]
-         mod_pres += [float(L[3])]
-         mod_wind += [float(L[4])]
-
-    #Ok, finished reading all lines but not done yet
-    if len(obs_lon)>0 and len(mod_lon)>0:
-
-          tc_stack = np.zeros((10,len(obs_lon)))
-          tc_stack[0,:] = np.array(obs_date)
-          tc_stack[1,:] = np.array(obs_lon)
-          tc_stack[2,:] = np.array(obs_lat)
-          tc_stack[3,:] = np.array(obs_wind)
-          tc_stack[4,:] = np.array(obs_pres)
-          tc_stack[5,:] = np.array(mod_date)
-          tc_stack[6,:] = np.array(mod_lon)
-          tc_stack[7,:] = np.array(mod_lat)
-          tc_stack[8,:] = np.array(mod_wind)
-          tc_stack[9,:] = np.array(mod_pres)
-          all_pred[ini_time] = tc_stack
-
-    fo.close()
-    
-  return all_pred 
-
-########################################################################
-# funciton to plot forecasts 
-########################################################################
-
-def transfer_time(time_s, time_ref):
-
-    hours = []
-
-    #note time_s is ini array; time_ref is str
-    date_ref = dt.datetime.strptime(time_ref, "%Y%m%d%H")
-
-    for i in np.arange(len(time_s)):
-        #print str(int(100*time_s[i]))
-        date1 = dt.datetime.strptime(str(int(100*time_s[i])), "%Y%m%d%H")
-        diff = date1 - date_ref
-        hours+= [diff.days*24+1./3600*diff.seconds]
-    #print time_s, time_ref
-    #print hours
-    return np.array(hours)
-
-def plot_multi_forecast(stack1, stack2, stack3, stack4, ini_time, storm_id, exp1, exp2, exp3, exp4, pic_dir):
-
-          # --- exact info
-          t_obs=stack1[0,:]
-          x_obs=stack1[1,:]
-          y_obs=stack1[2,:]
-          w_obs=stack1[3,:]
-          p_obs=stack1[4,:]
-
-          t_mod1=stack1[5,:]
-          x_mod1=stack1[6,:]
-          y_mod1=stack1[7,:]
-          w_mod1=stack1[8,:]
-          p_mod1=stack1[9,:]
-
-          t_mod2=stack2[5,:]
-          x_mod2=stack2[6,:]
-          y_mod2=stack2[7,:]
-          w_mod2=stack2[8,:]
-          p_mod2=stack2[9,:]
-
-          time1 = transfer_time(t_mod1, ini_time) 
-          time2 = transfer_time(t_mod2, ini_time)
-
-          do_tc3 = False
-          do_tc4 = False
-
-          if np.size(stack3)>1:
-             do_tc3 = True
-             t_mod3=stack3[5,:]
-             x_mod3=stack3[6,:]
-             y_mod3=stack3[7,:]
-             w_mod3=stack3[8,:]
-             p_mod3=stack3[9,:]
-             time3 = transfer_time(t_mod3, ini_time)
-
-          if np.size(stack4)>1:
-             do_tc4 = True
-             t_mod4=stack4[5,:]
-             x_mod4=stack4[6,:]
-             y_mod4=stack4[7,:]
-             w_mod4=stack4[8,:]
-             p_mod4=stack4[9,:]
-             time4 = transfer_time(t_mod4, ini_time)
-
-          # --- make plot
-
-          ft = 22
-          ft1= 18
-
-          col1 = 'orange'
-          col2 = 'red'
-          col3 = 'g'
-          col4 = 'b'
-
-          marker = 'o'
-          ms = 7
-          mec = 'w'
-
-          xmin = 0-3 
-          xmax = 120+3 
-          dx = 12
-          xticks = np.arange(0, 120+dx, dx)
-
-          title = storm_id + ' Forecast Initialized on ' + ini_time + '\n'
-          
-          plt.close('all')
-          fig = plt.figure(figsize = (8,22))
-
-          ax1 = plt.subplot(311)
-
-          ax1.plot(x_obs,   y_obs,  'k', lw = 2., label = 'Obs',   marker = marker, ms = ms, mec = mec)
-          ax1.plot(x_mod1, y_mod1, col1, lw = 2., label = exp1,    marker = marker, ms = ms, mec = mec)
-          ax1.plot(x_mod2[:len(x_mod1)], y_mod2[:len(x_mod1)], col2, lw = 2., label = exp2,    marker = marker, ms = ms, mec = mec)
-          if do_tc3:
-           ax1.plot(x_mod3[:len(x_mod1)], y_mod3[:len(x_mod1)], col3, lw = 2., label = exp3,    marker = marker, ms = ms, mec = mec) 
-          if do_tc4:
-           ax1.plot(x_mod4[:len(x_mod1)], y_mod4[:len(x_mod1)], col4, lw = 2., label = exp4,    marker = marker, ms = ms, mec = mec)
-
-          ax1.grid(True)
-          ax1.legend(loc=0,frameon=False,fontsize=ft1)
-
-          ax1.set_xlabel('Lon (deg)',fontsize=ft)
-          ax1.set_ylabel('Lat (deg)',fontsize=ft)
-          ax1.set_title(title, fontsize=ft)
-
-          for tick in ax1.xaxis.get_major_ticks():
-              tick.label.set_fontsize(ft1)
-          for tick in ax1.yaxis.get_major_ticks():
-              tick.label.set_fontsize(ft1)
-
-          ax1 = plt.subplot(312)
-
-          ax1.plot(time1, w_obs,   'k',  lw = 2., marker = marker, ms = ms, mec = mec)
-          ax1.plot(time1, w_mod1,  col1, lw = 2., marker = marker, ms = ms, mec = mec)
-          ax1.plot(time2, w_mod2,  col2, lw = 2., marker = marker, ms = ms, mec = mec)
-          if do_tc3:
-             ax1.plot(time3, w_mod3,  col3, lw = 2., marker = marker, ms = ms, mec = mec)
-          if do_tc4:
-             ax1.plot(time4, w_mod4,  col4, lw = 2., marker = marker, ms = ms, mec = mec)
-
-          ax1.grid(True)
-          ax1.set_ylabel('Wind (m/s)',fontsize=ft)
-
-          ax1.set_xlim([xmin, xmax])
-          ax1.set_xticks(xticks)
-
-          for tick in ax1.xaxis.get_major_ticks():
-              tick.label.set_fontsize(ft1)
-          for tick in ax1.yaxis.get_major_ticks():
-              tick.label.set_fontsize(ft1)
-
-          ax1 = plt.subplot(313)
-          ax1.plot(time1, p_obs,   'k',  lw = 2., marker = marker, ms = ms, mec = mec)
-          ax1.plot(time1, p_mod1,  col1, lw = 2., marker = marker, ms = ms, mec = mec)
-          ax1.plot(time2, p_mod2,  col2, lw = 2., marker = marker, ms = ms, mec = mec)
-          if do_tc3:
-             ax1.plot(time3, p_mod3,  col3, lw = 2., marker = marker, ms = ms, mec = mec)
-          if do_tc4:
-             ax1.plot(time4, p_mod4,  col4, lw = 2., marker = marker, ms = ms, mec = mec)
-
-          ax1.grid(True)
-          ax1.set_ylabel('Pres (mb)',fontsize=ft)
-
-          ax1.set_xlim([xmin, xmax])
-          ax1.set_xticks(xticks)
-
-          for tick in ax1.xaxis.get_major_ticks():
-              tick.label.set_fontsize(ft1)
-          for tick in ax1.yaxis.get_major_ticks():
-              tick.label.set_fontsize(ft1)
-          
-          fig.savefig(pic_dir + storm_id + '.' + ini_time + '.png',bbox_inches='tight')
-          #plt.show()
