@@ -3,7 +3,7 @@ import math
 
 # =====================================================
 #  function to obatin the azimuthal-mean profile for 
-#  a 2d var based on slected theta range 
+#  a 2d var based on selected theta range 
 # =====================================================
 
 def azimuthal_mean(xm, ym, var_2d, theta_str, theta_end, radius_list, r_bin):
