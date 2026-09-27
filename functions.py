@@ -17,10 +17,22 @@ import matplotlib.path as mpath
 from matplotlib.patches import Polygon
 import matplotlib as mpl
 import matplotlib.colors as mcolors
+from scipy.ndimage import convolve
 
 ########################################################################
 # functions - calculations (interp, remap, filter ...)
 ########################################################################
+
+#-----------------------------------------------------------------------
+# function to do NxN points averaging 
+#-----------------------------------------------------------------------
+
+def n2_points_average(arr, n):
+
+    kernel = np.ones((n, n)) / float(n*n)
+    smoothed = convolve(arr, kernel, mode='reflect')
+
+    return smoothed
 
 #-----------------------------------------------------------------------
 # function to pad 2D data
