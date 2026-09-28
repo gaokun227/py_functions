@@ -2166,7 +2166,6 @@ def simple_tracker_dp(lon, lat, ws10m, slp):
 
         return np.array(vmax_all), np.array(pmin_all), np.array(rmw_all)
 
-'''
 #-----------------------------------------------------------------------
 # function to get desired TC records 
 #-----------------------------------------------------------------------
@@ -2222,9 +2221,8 @@ def get_good_tc_records(tc_id, all_date, all_lon, all_lat, all_pres, all_wind, \
                    all_date, all_lon, all_lat, all_pres, all_wind = \
                    trim_for_nest(all_date, all_lon, all_lat, all_pres, all_wind, data_range, nest_edges)
 
-                   #if len (all_date) < span_min:
+                   if len (all_date) < span_min:
                    #   print 'TC ID = ', tc_id, ': the trimmed record is too short ; record length = ', len(all_date) 
-
                       read_this_tc = False
 
                 if read_aqua:
@@ -2232,8 +2230,7 @@ def get_good_tc_records(tc_id, all_date, all_lon, all_lat, all_pres, all_wind, \
                    trim_for_aqua(all_date, all_lon, all_lat, all_pres, all_wind, data_range, nest_edges)
 
                    if len (all_date) < span_min:
-                      print 'TC ID = ', tc_id, ': the trimmed record is too short ; record length = ', len(all_date) 
-
+                      #print 'TC ID = ', tc_id, ': the trimmed record is too short ; record length = ', len(all_date) 
                       read_this_tc = False
 
                 # --- remove data not needed - find tc_str and tc_end
@@ -2266,13 +2263,12 @@ def get_good_tc_records(tc_id, all_date, all_lon, all_lat, all_pres, all_wind, \
                      tc_pres = all_pres[tc_str:tc_end+1]
                      tc_wind = all_wind[tc_str:tc_end+1]
                   else:
-                     print 'TC ID = ', tc_id, ': the record is too short ; record length = ', tc_end-tc_str+1
-
+                     print ('TC ID = ', tc_id, ': the record is too short ; record length = ', tc_end-tc_str+1)
+                     
                  else: # if is_tc and np.max(all_wind) > wind_max_life is not true
-                   print 'TC ID = ', tc_id, ': not strong enough ; max wind = ', np.max(all_wind)
+                   print ('TC ID = ', tc_id, ': not strong enough ; max wind = ', np.max(all_wind))
 
                 return tc_date, tc_lon, tc_lat, tc_pres, tc_wind
-'''
 
 #-----------------------------------------------------------------------
 # function to perform azimuthal average 

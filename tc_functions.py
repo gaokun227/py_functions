@@ -240,7 +240,7 @@ class stratify_TC_error():
      elif type == 'track_error':
          unit = 'nm'
          title_a = 'Track Error'
-     elif type == 'size_error':
+     elif 'R' in type:
          unit = 'nm'
          title_a = 'Size Error'
  
@@ -279,11 +279,11 @@ class stratify_TC_error():
      percent_list = self.get_percent_contribution(diff_list, count_list)
      stormID_list, value_list1, value_list2, percent_list = self.sort_lists(stormID_list, value_list1, value_list2, percent_list)
 
-     fig = plt.figure(figsize=(24,6))
+     fig = plt.figure(figsize=(20,6))
      ax=plt.subplot(111)
      ft = 16
-     ft1 = 12
-     ft2 = 10
+     ft1 = 14
+     ft2 = 14
 
      x = np.arange(len(value_list1))
      width = 0.35
@@ -341,7 +341,7 @@ class stratify_TC_error():
      elif type == 'track_error':
          unit = 'nm'
          title_a = 'Track Error'
-     elif type == 'size_error':
+     elif 'R' in type:
          unit = 'nm'
          title_a = 'Size Error'
 
@@ -459,8 +459,9 @@ class stratify_TC_error():
          bmax = max(np.max(modelA_error), np.max(modelB_error))
          bins = np.arange(bmin, bmax+25, 25)
 
-         ft = 14
-         fig = plt.figure(figsize=(12,6))
+         ft = 16
+         ft1 = 14
+         fig = plt.figure(figsize=(16,6))
 
          # model A
          ax = plt.subplot(121)
@@ -469,14 +470,19 @@ class stratify_TC_error():
          plt.ylim([0, 0.2])
          plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
 
-         title =  'PDF of error at Hour ' + str(hh) + ': ' +self.model_name_map[modelA] +  '\n' \
-                 + 'mean and std: {:.2f}nm and {:.2f}nm'.format(muA, stdA)
+         title =  'PDF of Errors at Hour ' + str(hh) + ': ' +self.model_name_map[modelA] +  '\n' \
+                 + 'mean and std: {:.1f}nm and {:.1f}nm'.format(muA, stdA)
          plt.title(title, fontsize = ft)
          plt.xlabel('nm', fontsize = ft)
 
          ax.axvline(x = muA, c='k', lw=2, ls='-')
          ax.axvline(x = muA + 1*stdA, c='k', lw=2, ls='--')
          ax.axvline(x = muA - 1*stdA, c='k', lw=2, ls='--')
+
+         for tick in ax.xaxis.get_major_ticks():
+             tick.label1.set_fontsize(ft1)
+         for tick in ax.yaxis.get_major_ticks():
+             tick.label1.set_fontsize(ft1)
 
          # model B
          ax = plt.subplot(122)
@@ -485,8 +491,8 @@ class stratify_TC_error():
          plt.ylim([0, 0.2])
          plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
 
-         title =  'PDF of error at Hour ' + str(hh) + ': ' +self.model_name_map[modelB] +  '\n' \
-                 + 'mean and std: {:.2f}nm and {:.2f}nm'.format(muB, stdB)
+         title =  'PDF of Errors at Hour ' + str(hh) + ': ' +self.model_name_map[modelB] +  '\n' \
+                 + 'mean and std: {:.1f}nm and {:.1f}nm'.format(muB, stdB)
          plt.title(title, fontsize = ft)
          plt.xlabel('nm', fontsize = ft)
 
@@ -494,7 +500,15 @@ class stratify_TC_error():
          ax.axvline(x = muB + 1*stdB, c='k', lw=2, ls='--')
          ax.axvline(x = muB - 1*stdB, c='k', lw=2, ls='--')
 
-         plt.show()
+         for tick in ax.xaxis.get_major_ticks():
+             tick.label1.set_fontsize(ft1)
+         for tick in ax.yaxis.get_major_ticks():
+             tick.label1.set_fontsize(ft1)
+
+         filename = 'PDF_'+modelA+'_'+modelB+'_'+str(hh)+'hr'
+         fig.savefig(filename+'.png',bbox_inches='tight')
+
+         #plt.show()
 
 # <=================== end of the class
 
@@ -1062,6 +1076,7 @@ def select_atcf_records(tc_dict, min_lti, max_ini_wind, max_lat) :
     return tc_dict_g1, tc_dict_g2
 
 
+# read forecasts from a list of models (modelA, modelB) at a given init. date based on the merged a-decks
 def read_atcf_merged(filename, model_list, ini_date):
 
     tc_dict_all = {}
@@ -1074,18 +1089,20 @@ def read_atcf_merged(filename, model_list, ini_date):
     df_all['iniDate'] =  df_all['iniDate'].astype(str)
     df_all['modelID'] =  df_all['modelID'].str.strip()
 
-    df_all = df_all[ (df_all['iniDate'] == ini_date) & (df_all['leadTime'].isin(selected_hours)) ]
-    #print df_all.head(n=10)
+    # --- select all recs from this init. date and within the 5-day forecast range 
+    df_all = df_all[ (df_all['iniDate'] == ini_date) & (df_all['leadTime'].isin(selected_hours)) ] 
 
     if len(df_all) > 0:
+
      for model in model_list:
+
        tc_dict_ = {} 
 
+       # --- select recs for a given model config
        df = df_all[df_all['modelID']==model]
 
        if len(df) > 0:
-         df1 = df[df['radMarker']==34]
-         #print df.head(n=10)
+         df1 = df[df['radMarker']==34] # select lines with radMarker == radMarker; has to be 34 if to select all leadtimes
          tc_dict_['leadTime'] = list(df1['leadTime'].astype(int))
          tc_dict_['lat'] = list(df1['lat'].str[:-1].astype(float)/10.)
          tc_dict_['lon'] =  list(360-df1['lon'].str[:-1].astype(float)/10.)
@@ -1097,6 +1114,7 @@ def read_atcf_merged(filename, model_list, ini_date):
          tc_dict_['rad34_4'] = list(df1['rad4'].astype(float)*1.852)
          tc_dict_['rmw'] = list(df1['rmw'].astype(float)*1.852)
 
+         # --- add date list to tc_dict_; converted based on leadTime
          date_list=[]
          for hh in tc_dict_['leadTime']:  
            actual_time = datetime.strptime(ini_date,'%Y%m%d%H') + timedelta(hours=hh)
@@ -1104,21 +1122,45 @@ def read_atcf_merged(filename, model_list, ini_date):
            date_list.append(dateSingle)
          tc_dict_['date']=date_list
 
-         #df2 = df[df['radMarker']==64]
-         #tc_dict_['rad64_1'] = list(df2['rad1'].astype(float)*1.852)
-         #tc_dict_['rad64_2'] = list(df2['rad2'].astype(float)*1.852)
-         #tc_dict_['rad64_3'] = list(df2['rad3'].astype(float)*1.852)
-         #tc_dict_['rad64_4'] = list(df2['rad4'].astype(float)*1.852)   
-         tc_dict_all[model] = tc_dict_
+         # --- merge R64 recs to tc_dict_
+         hh_list1 = list(df1['leadTime'].astype(int)) # the complete list of all leadtimes
+
+         df2 = df[df['radMarker']==64]
+         hh_list2 = list(df2['leadTime'].astype(int))
+         r64_1_list2 = list(df2['rad1'].astype(float)*1.852)
+         r64_2_list2 = list(df2['rad2'].astype(float)*1.852)
+         r64_3_list2 = list(df2['rad3'].astype(float)*1.852)
+         r64_4_list2 = list(df2['rad4'].astype(float)*1.852)
+
+         r64_1 = np.full(len(hh_list1), np.nan)
+         r64_2 = np.full(len(hh_list1), np.nan) 
+         r64_3 = np.full(len(hh_list1), np.nan)
+         r64_4 = np.full(len(hh_list1), np.nan)
+
+         for hh, a, b, c, d in zip(hh_list2, r64_1_list2, r64_2_list2, r64_3_list2, r64_4_list2):
+            if hh in hh_list1:
+               idx = hh_list1.index(hh)
+               r64_1[idx] = a
+               r64_2[idx] = b
+               r64_3[idx] = c
+               r64_4[idx] = d
+
+         tc_dict_['rad64_1'] = r64_1 
+         tc_dict_['rad64_2'] = r64_2 
+         tc_dict_['rad64_3'] = r64_3
+         tc_dict_['rad64_4'] = r64_4  
  
+         tc_dict_all[model] = tc_dict_ 
+
        else:
          print (model, 'not found')
  
     return tc_dict_all
 
+# this is a simple version and does not read wind radii
+# can be replaced by read_atcf below
 def read_atcf_obs(filename):
 
-    print("Reading", filename)
     fo = open (filename, "r")
 
     lines = fo.readlines()
@@ -1168,21 +1210,23 @@ def read_atcf_obs(filename):
                }
     return tc_dict
 
-def read_atcf(filename, isModel=True, read_wind_prof=False):
+def read_atcf(filename, isModel=True):
 
     print("Reading", filename)
     fo = open (filename, "r")
 
     lines = fo.readlines()
+  
+    date, lat, lon, wind, pres, rmw = [], [], [], [], [], []
 
-    date, lat, lon, wind, pres = [], [], [], [], []
-    rmw = []
     rad34_1, rad34_2, rad34_3, rad34_4 = [], [], [], []
-    #rad50_1, rad50_2, rad50_3, rad50_4 = [], [], [], []
     #rad64_1, rad64_2, rad64_3, rad64_4 = [], [], [], []
+
+    # ---> first loop: extract all var except for wind radii
 
     counter = 0
     notNamed = True # to read obs storm name
+
     for line in lines:
 
         line = str(line)
@@ -1193,13 +1237,9 @@ def read_atcf(filename, isModel=True, read_wind_prof=False):
           dateSingle = actual_time.strftime('%Y%m%d%H')
         else:
           dateSingle = fields[2][1:]
-
-        if int(fields[11]) == 34: 
-           rad1, rad2, rad3, rad4 = float(fields[13]), float(fields[14]), float(fields[15]), float(fields[16]) 
-        else: 
-           rad1, rad2, rad3, rad4 = 0., 0., 0., 0.
- 
+  
         if dateSingle not in date:
+
            latSingle = int(fields[6][:-1])/10.0
            lonSingle = 360.-(int(fields[7][:-1])/10.0)
 
@@ -1207,24 +1247,30 @@ def read_atcf(filename, isModel=True, read_wind_prof=False):
            lat.append(latSingle)
            lon.append(lonSingle)
            wind.append(0.5144*int(fields[8]))
+           pres.append(int(fields[9]))
+
+           # --- rmw
+           if len(fields)>=20:
+             rmw.append(int(fields[19])*1.852)
+           else:
+             rmw.append(0.)
+
+           # --- R34
+           if int(fields[11]) == 34:
+              rad1, rad2, rad3, rad4 = float(fields[13]), float(fields[14]), float(fields[15]), float(fields[16])
+           else:
+              rad1, rad2, rad3, rad4 = 0., 0., 0., 0.
+
+           rad34_1.append(rad1*1.852)                  
+           rad34_2.append(rad2*1.852)   
+           rad34_3.append(rad3*1.852)   
+           rad34_4.append(rad4*1.852) 
 
            # for b-decks only
            if not isModel and notNamed:
               if len(fields)>=28 and int(fields[8]) >= 65:
                 stormName=fields[27].strip()
                 notNamed = False
-
-           pres.append(int(fields[9]))
-           rad34_1.append(rad1*1.852)                  
-           rad34_2.append(rad2*1.852)   
-           rad34_3.append(rad3*1.852)   
-           rad34_4.append(rad4*1.852)  
-          
-           # some rmw is missing from b-decks 
-           if len(fields)>=20:
-             rmw.append(int(fields[19])*1.852)
-           else:
-             rmw.append(0.)
 
         # one time info - do it at first line
         if counter == 0:
@@ -1238,38 +1284,38 @@ def read_atcf(filename, isModel=True, read_wind_prof=False):
     if (not isModel) and (not notNamed):
        stormID=stormID+'-'+stormName
 
-    if read_wind_prof:
+    # ---> second loop: R64
 
-       # get file name
-       file_dir = os.path.dirname(filename)
-       str_file = file_dir+'/*structure*'
-       str_files = glob.glob(str_file)
-       if len(str_files) != 1:
-         print ('Warning: invalid structure filename')
-       else:
-         str_file = str_files[0]
+    rad64_1 = np.full(len(date), np.nan)
+    rad64_2 = np.full(len(date), np.nan) 
+    rad64_3 = np.full(len(date), np.nan)
+    rad64_4 = np.full(len(date), np.nan)
 
-       df_str = pd.read_csv(str_file, header=None)
-       df_str.iloc[:,13:27] = df_str.iloc[:, 13:27].astype(float)/10.
+    for dateSingle in date:
 
-       # ABOUT COL 11
-       # 71: earth-relative winds
-       # 72: storm-relative winds 
-       # 81: Tangential winds, earth-relative
-       # 82: Tangential winds, storm-relative
-       # 91: Radial winds, earth-relative
-       # 92: Radial winds, storm-relative
+        for _line in lines:
+              _fields = _line.split(',')
+              if isModel:
+                 _actual_time = datetime.strptime(_fields[2][1:],'%Y%m%d%H') + timedelta(hours=int(_fields[5]))
+                 _dateSingle = _actual_time.strftime('%Y%m%d%H')
+              else:
+                 _dateSingle = _fields[2][1:]
 
-       df_str_new = df_str[(df_str.iloc[:,1] == int(stormID)) & (df_str.iloc[:,11] == 71)]
-       df_str_NEE = df_str_new[(df_str_new.iloc[:,12].str.contains('NEE'))].iloc[:,13:27]
-       df_str_SEE = df_str_new[(df_str_new.iloc[:,12].str.contains('SEE'))].iloc[:,13:27]
-       df_str_SWE = df_str_new[(df_str_new.iloc[:,12].str.contains('SWE'))].iloc[:,13:27]
-       df_str_NWE = df_str_new[(df_str_new.iloc[:,12].str.contains('NWE'))].iloc[:,13:27]
+              if _dateSingle == dateSingle and int(_fields[11]) == 64:
+                 _rad1, _rad2, _rad3, _rad4 = float(_fields[13]), float(_fields[14]), float(_fields[15]), float(_fields[16])
 
-       wind_NEE = df_str_NEE.values.tolist()
-       wind_SEE = df_str_SEE.values.tolist()
-       wind_SWE = df_str_SWE.values.tolist()
-       wind_NWE = df_str_NWE.values.tolist()
+                 _rad1 = np.nan if _rad1 == 0 else _rad1
+                 _rad2 = np.nan if _rad2 == 0 else _rad2
+                 _rad3 = np.nan if _rad3 == 0 else _rad3
+                 _rad4 = np.nan if _rad4 == 0 else _rad4
+
+                 #print(dateSingle, _rad1, _rad2, _rad3, _rad4) 
+
+                 idx = date.index(_dateSingle)
+                 rad64_1[idx] = _rad1*1.852
+                 rad64_2[idx] = _rad2*1.852
+                 rad64_3[idx] = _rad3*1.852
+                 rad64_4[idx] = _rad4*1.852
 
     tc_dict = {'basin'     : basin,
                'stormID'   : stormID,
@@ -1284,14 +1330,12 @@ def read_atcf(filename, isModel=True, read_wind_prof=False):
                'rad34_1'   : rad34_1,
                'rad34_2'   : rad34_2,
                'rad34_3'   : rad34_3,
-               'rad34_4'   : rad34_4
+               'rad34_4'   : rad34_4,
+               'rad64_1'   : rad64_1,
+               'rad64_2'   : rad64_2,
+               'rad64_3'   : rad64_3,
+               'rad64_4'   : rad64_4,
                }
-    if read_wind_prof:
-
-      tc_dict['wind_NWE'] = wind_NEE
-      tc_dict['wind_SEE'] = wind_SEE
-      tc_dict['wind_SWE'] = wind_SWE
-      tc_dict['wind_NWE'] = wind_NWE
 
     return tc_dict
 
