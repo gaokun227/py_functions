@@ -10,9 +10,10 @@ import re
 from scipy.stats import norm
 from matplotlib.ticker import PercentFormatter
 
-# This files contains a collection of functions / class for
+# This files contains a collection of python functions / classes for
 # 1) TC forecast verficaition based on Tim's package
 # 2) ATCF file related operations
+# Contact: Kun.Gao@noaa.gov
 
 #===========================================================================
 # Part 1: A very powerful CLASS: stratify_TC_error
@@ -532,7 +533,7 @@ def run_verify(work_dir, card_tag, type, model_name_map, do_plot_only = False, m
 
      # process radius verification output
      if type == 'radii':
-        cmd = '/work/Kun.Gao/trak_ver/scripts/radiicut.sh {}{}.out > {}{}.out2'.format(work_dir, card_name, work_dir, card_name)
+        cmd = '../scripts/radiicut.sh {}{}.out > {}{}.out2'.format(work_dir, card_name, work_dir, card_name)
         os.system(cmd)
 
   # --- make plots
